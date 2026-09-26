@@ -1,17 +1,19 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import type { LyricLine, TrackMetadata, TimingSource } from './types/lyrics';
-import type { StyleConfig, ExportSettings, AudioTrackState, ProjectState } from './types/project';
-import { Header } from './components/Header';
-import { InputPanel } from './components/InputPanel';
-import { PreviewPlayer } from './components/PreviewPlayer';
-import { TimelineEditor } from './components/TimelineEditor';
-import { StylePanel } from './components/StylePanel';
-import { ExportModal } from './components/ExportModal';
+import type { StyleConfig, ExportSettings, AudioTrackState, ProjectState, ActiveTab } from './types/project';
+import { Navigation } from './components/Navigation';
+import { ProjectsPage } from './components/pages/ProjectsPage';
+import { LyricsPage } from './components/pages/LyricsPage';
+import { TimelinePage } from './components/pages/TimelinePage';
+import { DesignPage } from './components/pages/DesignPage';
+import { PreviewPage } from './components/pages/PreviewPage';
+import { ExportPage } from './components/pages/ExportPage';
+import { SettingsPage } from './components/pages/SettingsPage';
 
 import { parseLrc } from './lib/lyrics/lrc-parser';
 import { parseTxtLyrics } from './lib/lyrics/txt-parser';
 import { exportProjectToJson, parseJsonLyrics } from './lib/lyrics/json-parser';
-import { EDITORIAL_BURGUNDY, STYLE_PRESETS } from './lib/styles/presets';
+import { DEEP_FOREST, STYLE_PRESETS } from './lib/styles/presets';
 import { validateProjectQuality } from './lib/validation/quality-validator';
 import { chunkAllLyricLines } from './lib/layout/lyric-chunker';
 import {
@@ -25,7 +27,9 @@ import { audioManager } from './lib/audio/audio-manager';
 import { DEMO_LRC, DEMO_ENHANCED_LRC, DEMO_TXT } from './lib/data/demo-tracks';
 
 export function App() {
-  // 1. Initial State loaded with default editorial LRC
+  const [activeTab, setActiveTab] = useState<ActiveTab>('lyrics');
+
+  // Initial State loaded with default editorial LRC
   const initialParsed = parseLrc(DEMO_LRC);
 
   const [lines, setLines] = useState<LyricLine[]>(initialParsed.lines);
@@ -38,12 +42,12 @@ export function App() {
     duration: null,
   });
 
-  const [style, setStyle] = useState<StyleConfig>(EDITORIAL_BURGUNDY);
+  const [style, setStyle] = useState<StyleConfig>(DEEP_FOREST);
   const [exportSettings, setExportSettings] = useState<ExportSettings>({
     width: 1080,
     height: 1920,
     aspectRatio: '9:16',
-    fps: 60, // 60 FPS default (Section 14)
+    fps: 60,
     bitrateKbps: 8000,
     includeAudio: false,
     format: 'mp4',
@@ -57,7 +61,6 @@ export function App() {
   const [selectedLineId, setSelectedLineId] = useState<string | null>(
     lines[0]?.id || null
   );
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isAligning, setIsAligning] = useState(false);
 
   const [audioState, setAudioState] = useState<AudioTrackState>({
@@ -78,7 +81,7 @@ export function App() {
 
   // Playhead Animation Loop
   const playheadReqRef = useRef<number | null>(null);
-  const lastTimeRef = useRef<number>(performance.now());
+  const lastTimeRef = useRef<number>(0);
 
   useEffect(() => {
     if (!isPlaying) {
@@ -110,6 +113,65 @@ export function App() {
       if (playheadReqRef.current) cancelAnimationFrame(playheadReqRef.current);
     };
   }, [isPlaying, totalDuration]);
+
+  // Stepping Prev/Next Line in Preview
+  const handlePrevLine = useCallback(() => {
+    const currentIndex = lines.findIndex(
+      (l) => l.startTime !== null && currentTime >= l.startTime && currentTime < (l.endTime || l.startTime + 1)
+    );
+    if (currentIndex > 0) {
+      const prevLine = lines[currentIndex - 1];
+      if (prevLine.startTime !== null) {
+        setCurrentTime(prevLine.startTime);
+        setSelectedLineId(prevLine.id);
+      }
+    } else if (lines.length > 0 && lines[0].startTime !== null) {
+      setCurrentTime(lines[0].startTime);
+      setSelectedLineId(lines[0].id);
+    }
+  }, [lines, currentTime]);
+
+  const handleNextLine = useCallback(() => {
+    for (const l of lines) {
+      if (l.startTime !== null && l.startTime > currentTime + 0.1) {
+        setCurrentTime(l.startTime);
+        setSelectedLineId(l.id);
+        break;
+      }
+    }
+  }, [lines, currentTime]);
+
+  // Global Keyboard Navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input or textarea
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        setIsPlaying((p) => !p);
+      } else if (e.key === '[') {
+        e.preventDefault();
+        handlePrevLine();
+      } else if (e.key === ']') {
+        e.preventDefault();
+        handleNextLine();
+      } else if (e.key === 'Home' || e.key === '0') {
+        e.preventDefault();
+        setCurrentTime(0);
+        setIsPlaying(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handlePrevLine, handleNextLine]);
 
   // Handlers for Lyrics Upload and Demonstrations
   const handleLyricsLoaded = (
@@ -217,31 +279,27 @@ export function App() {
     setLines(updated);
   };
 
-  // Stepping Prev/Next Line in Preview
-  const handlePrevLine = () => {
-    const currentIndex = lines.findIndex(
-      (l) => l.startTime !== null && currentTime >= l.startTime && currentTime < (l.endTime || l.startTime + 1)
+  const handleUpdateLineText = (lineId: string, text: string) => {
+    setLines((prev) =>
+      prev.map((l) => (l.id === lineId ? { ...l, text: text.trim() } : l))
     );
-    if (currentIndex > 0) {
-      const prevLine = lines[currentIndex - 1];
-      if (prevLine.startTime !== null) {
-        setCurrentTime(prevLine.startTime);
-        setSelectedLineId(prevLine.id);
-      }
-    } else if (lines.length > 0 && lines[0].startTime !== null) {
-      setCurrentTime(lines[0].startTime);
-      setSelectedLineId(lines[0].id);
-    }
   };
 
-  const handleNextLine = () => {
-    for (const l of lines) {
-      if (l.startTime !== null && l.startTime > currentTime + 0.1) {
-        setCurrentTime(l.startTime);
-        setSelectedLineId(l.id);
-        break;
-      }
-    }
+  // Global Offset (e.g. +100ms, -250ms across every timed line)
+  const handleApplyGlobalOffset = (deltaMs: number) => {
+    const deltaSec = deltaMs / 1000;
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.startTime === null) return l;
+        const newStart = Math.max(0, l.startTime + deltaSec);
+        const newEnd = l.endTime !== null ? Math.max(newStart + 0.1, l.endTime + deltaSec) : null;
+        return {
+          ...l,
+          startTime: newStart,
+          endTime: newEnd,
+        };
+      })
+    );
   };
 
   // Project Persistence (Save / Open JSON)
@@ -298,110 +356,190 @@ export function App() {
     input.click();
   };
 
+  const handleNewProject = () => {
+    if (confirm('Create new blank project session? Unsaved changes will be discarded.')) {
+      setLines([]);
+      setTrack({
+        title: 'New Session',
+        artist: '',
+        album: '',
+        audioSource: 'NONE',
+        timingSource: 'SOURCE_UNKNOWN',
+        duration: null,
+      });
+      setSelectedLineId(null);
+      setCurrentTime(0);
+      setIsPlaying(false);
+      setAudioState({
+        enabled: false,
+        source: 'NONE',
+        fileName: null,
+        duration: null,
+        audioBlobUrl: null,
+        audioBuffer: null,
+        peaks: [],
+      });
+      setActiveTab('lyrics');
+    }
+  };
+
   return (
     <div className="app-container">
-      {/* 1. Header */}
-      <Header
-        title={track.title}
-        artist={track.artist}
+      {/* Persistent Minimal Editorial Navigation */}
+      <Navigation
+        activeTab={activeTab}
+        onTabChange={(tab) => setActiveTab(tab)}
+        trackTitle={track.title}
+        artistName={track.artist}
         timingSource={track.timingSource}
         validation={validation}
         hasAudio={!!audioState.audioBlobUrl}
-        onOpenExport={() => setIsExportModalOpen(true)}
         onSaveProject={handleSaveProject}
         onLoadProject={handleLoadProject}
       />
 
-      {/* 2. Studio Workspace */}
-      <div className="studio-workspace">
-        {/* Left: Input & Source Panel */}
-        <InputPanel
-          track={track}
-          lines={lines}
-          timingSource={track.timingSource}
-          audioFileName={audioState.fileName}
-          audioDuration={audioState.duration}
-          isAligning={isAligning}
-          onLyricsLoaded={handleLyricsLoaded}
-          onAudioFileSelected={handleAudioFileSelected}
-          onUpdateMetadata={(meta) => setTrack((prev) => ({ ...prev, ...meta }))}
-          onRunAudioAlignment={handleRunAudioAlignment}
-          onLoadPresetLyrics={handleLoadPresetLyrics}
-        />
+      {/* Main Product Area Viewport */}
+      <main className="main-viewport-content">
+        {activeTab === 'projects' && (
+          <ProjectsPage
+            track={track}
+            lines={lines}
+            timingSource={track.timingSource}
+            totalDuration={totalDuration}
+            hasAudio={!!audioState.audioBlobUrl}
+            onUpdateMetadata={(meta) => setTrack((prev) => ({ ...prev, ...meta }))}
+            onLoadPresetLyrics={handleLoadPresetLyrics}
+            onLoadProject={handleLoadProject}
+            onSaveProject={handleSaveProject}
+            onNewProject={handleNewProject}
+            onNavigateTab={(tab) => setActiveTab(tab)}
+          />
+        )}
 
-        {/* Center: Deterministic Preview Player */}
-        <PreviewPlayer
-          lines={lines}
-          style={style}
-          visualBlocks={visualBlocks}
-          currentTime={currentTime}
-          totalDuration={totalDuration}
-          isPlaying={isPlaying}
-          audioBlobUrl={audioState.audioBlobUrl}
-          trackTitle={track.title}
-          artistName={track.artist}
-          onTimeUpdate={(t) => setCurrentTime(t)}
-          onPlayPause={() => setIsPlaying(!isPlaying)}
-          onRestart={() => {
-            setCurrentTime(0);
-            setIsPlaying(false);
-          }}
-          onPrevLine={handlePrevLine}
-          onNextLine={handleNextLine}
-        />
+        {activeTab === 'lyrics' && (
+          <LyricsPage
+            lines={lines}
+            track={track}
+            timingSource={track.timingSource}
+            audioFileName={audioState.fileName}
+            audioDuration={audioState.duration}
+            isAligning={isAligning}
+            selectedLineId={selectedLineId}
+            currentTime={currentTime}
+            validation={validation}
+            onSelectLine={(id) => setSelectedLineId(id)}
+            onSeek={(t) => setCurrentTime(t)}
+            onLyricsLoaded={handleLyricsLoaded}
+            onAudioFileSelected={handleAudioFileSelected}
+            onRunAudioAlignment={handleRunAudioAlignment}
+            onNudgeLine={handleNudgeLine}
+            onSplitLine={handleSplitLine}
+            onMergeWithNext={handleMergeWithNext}
+            onUpdateLineText={handleUpdateLineText}
+            onApplyGlobalOffset={handleApplyGlobalOffset}
+          />
+        )}
 
-        {/* Right: Style & Quality Check Panel */}
-        <StylePanel
-          style={style}
-          validation={validation}
-          onUpdateStyle={(newS) => setStyle((prev) => ({ ...prev, ...newS }))}
-          onApplyPreset={(pName) => {
-            if (STYLE_PRESETS[pName]) {
-              setStyle(STYLE_PRESETS[pName]);
-            }
-          }}
-          onSelectIssueLine={(lineId) => {
-            if (lineId) {
-              setSelectedLineId(lineId);
-              const target = lines.find((l) => l.id === lineId);
-              if (target && target.startTime !== null) {
-                setCurrentTime(target.startTime);
+        {activeTab === 'timeline' && (
+          <TimelinePage
+            lines={lines}
+            currentTime={currentTime}
+            totalDuration={totalDuration}
+            isPlaying={isPlaying}
+            audioPeaks={audioState.peaks}
+            audioFileName={audioState.fileName}
+            selectedLineId={selectedLineId}
+            validation={validation}
+            onPlayPause={() => setIsPlaying(!isPlaying)}
+            onRestart={() => {
+              setCurrentTime(0);
+              setIsPlaying(false);
+            }}
+            onSelectLine={(id) => setSelectedLineId(id)}
+            onSeek={(t) => setCurrentTime(t)}
+            onUpdateLineTiming={handleUpdateLineTiming}
+            onNudgeLine={handleNudgeLine}
+            onSplitLine={handleSplitLine}
+            onMergeWithNext={handleMergeWithNext}
+            onApplyGlobalOffset={handleApplyGlobalOffset}
+          />
+        )}
+
+        {activeTab === 'design' && (
+          <DesignPage
+            lines={lines}
+            style={style}
+            visualBlocks={visualBlocks}
+            currentTime={currentTime}
+            totalDuration={totalDuration}
+            isPlaying={isPlaying}
+            audioBlobUrl={audioState.audioBlobUrl}
+            trackTitle={track.title}
+            artistName={track.artist}
+            validation={validation}
+            onUpdateStyle={(newS) => setStyle((prev) => ({ ...prev, ...newS }))}
+            onApplyPreset={(pName) => {
+              if (STYLE_PRESETS[pName]) {
+                setStyle(STYLE_PRESETS[pName]);
               }
-            }
-          }}
-        />
-      </div>
+            }}
+            onTimeUpdate={(t) => setCurrentTime(t)}
+            onPlayPause={() => setIsPlaying(!isPlaying)}
+            onRestart={() => {
+              setCurrentTime(0);
+              setIsPlaying(false);
+            }}
+            onPrevLine={handlePrevLine}
+            onNextLine={handleNextLine}
+          />
+        )}
 
-      {/* 3. Bottom Timeline Editor */}
-      <TimelineEditor
-        lines={lines}
-        currentTime={currentTime}
-        totalDuration={totalDuration}
-        audioPeaks={audioState.peaks}
-        selectedLineId={selectedLineId}
-        onSelectLine={(id) => setSelectedLineId(id)}
-        onSeek={(t) => setCurrentTime(t)}
-        onUpdateLineTiming={handleUpdateLineTiming}
-        onNudgeLine={handleNudgeLine}
-        onSplitLine={handleSplitLine}
-        onMergeWithNext={handleMergeWithNext}
-      />
+        {activeTab === 'preview' && (
+          <PreviewPage
+            lines={lines}
+            style={style}
+            visualBlocks={visualBlocks}
+            currentTime={currentTime}
+            totalDuration={totalDuration}
+            isPlaying={isPlaying}
+            audioBlobUrl={audioState.audioBlobUrl}
+            trackTitle={track.title}
+            artistName={track.artist}
+            timingSource={track.timingSource}
+            onTimeUpdate={(t) => setCurrentTime(t)}
+            onPlayPause={() => setIsPlaying(!isPlaying)}
+            onRestart={() => {
+              setCurrentTime(0);
+              setIsPlaying(false);
+            }}
+            onPrevLine={handlePrevLine}
+            onNextLine={handleNextLine}
+            onNavigateTab={(tab) => setActiveTab(tab)}
+          />
+        )}
 
-      {/* 4. Export Modal */}
-      {isExportModalOpen && (
-        <ExportModal
-          lines={lines}
-          style={style}
-          visualBlocks={visualBlocks}
-          exportSettings={exportSettings}
-          audioBuffer={audioState.audioBuffer}
-          trackTitle={track.title}
-          artistName={track.artist}
-          validation={validation}
-          onClose={() => setIsExportModalOpen(false)}
-          onUpdateExportSettings={(s) => setExportSettings((prev) => ({ ...prev, ...s }))}
-        />
-      )}
+        {activeTab === 'export' && (
+          <ExportPage
+            lines={lines}
+            style={style}
+            visualBlocks={visualBlocks}
+            exportSettings={exportSettings}
+            audioBuffer={audioState.audioBuffer}
+            trackTitle={track.title}
+            artistName={track.artist}
+            validation={validation}
+            totalDuration={totalDuration}
+            onUpdateExportSettings={(s) => setExportSettings((prev) => ({ ...prev, ...s }))}
+          />
+        )}
+
+        {activeTab === 'settings' && (
+          <SettingsPage
+            exportSettings={exportSettings}
+            onUpdateExportSettings={(s) => setExportSettings((prev) => ({ ...prev, ...s }))}
+          />
+        )}
+      </main>
     </div>
   );
 }

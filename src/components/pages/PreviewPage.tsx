@@ -1,0 +1,306 @@
+import React, { useRef, useState, useEffect } from 'react';
+import { 
+  Play, 
+  Pause, 
+  RotateCcw, 
+  SkipBack, 
+  SkipForward, 
+  Volume2, 
+  VolumeX, 
+  Maximize2, 
+  Minimize2, 
+  Layers, 
+  ArrowRight,
+  Disc,
+  CheckCircle2
+} from 'lucide-react';
+import type { LyricLine, VisualLyricBlock, TimingSource } from '../../types/lyrics';
+import type { StyleConfig, ActiveTab } from '../../types/project';
+import { formatSecondsToTimecode } from '../../lib/lyrics/lrc-parser';
+import { getActiveVisualBlockAt } from '../../lib/layout/lyric-chunker';
+import { renderEditorialFrame } from '../../lib/render/canvas-renderer';
+
+interface PreviewPageProps {
+  lines: LyricLine[];
+  style: StyleConfig;
+  visualBlocks: VisualLyricBlock[];
+  currentTime: number;
+  totalDuration: number;
+  isPlaying: boolean;
+  audioBlobUrl: string | null;
+  trackTitle: string;
+  artistName: string;
+  timingSource: TimingSource;
+  onTimeUpdate: (time: number) => void;
+  onPlayPause: () => void;
+  onRestart: () => void;
+  onPrevLine: () => void;
+  onNextLine: () => void;
+  onNavigateTab: (tab: ActiveTab) => void;
+}
+
+export const PreviewPage: React.FC<PreviewPageProps> = ({
+  lines: _lines,
+  style,
+  visualBlocks,
+  currentTime,
+  totalDuration,
+  isPlaying,
+  audioBlobUrl,
+  trackTitle,
+  artistName,
+  timingSource,
+  onTimeUpdate,
+  onPlayPause,
+  onRestart,
+  onPrevLine,
+  onNextLine,
+  onNavigateTab,
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
+  const [isMuted, setIsMuted] = useState(false);
+  const [showSafeAreas, setShowSafeAreas] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Synchronize audio playback
+  useEffect(() => {
+    if (!audioRef.current) return;
+    audioRef.current.playbackRate = playbackSpeed;
+    if (isPlaying) {
+      if (Math.abs(audioRef.current.currentTime - currentTime) > 0.25) {
+        audioRef.current.currentTime = currentTime;
+      }
+      audioRef.current.play().catch(() => {});
+    } else {
+      audioRef.current.pause();
+    }
+  }, [isPlaying, playbackSpeed, currentTime]);
+
+  // Render canvas frame on time change or style change
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    renderEditorialFrame(ctx, {
+      width: canvas.width,
+      height: canvas.height,
+      currentTime,
+      lines: _lines,
+      style,
+      visualBlocks,
+      trackTitle,
+      artistName,
+    });
+  }, [_lines, currentTime, style, visualBlocks, trackTitle, artistName]);
+
+  // Fullscreen toggle
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
+    }
+  };
+
+  // Active block information
+  const { activeBlock, activeIndex } = getActiveVisualBlockAt(visualBlocks, currentTime);
+
+  return (
+    <div className="workspace-page preview-page" ref={containerRef}>
+      {audioBlobUrl && (
+        <audio
+          ref={audioRef}
+          src={audioBlobUrl}
+          muted={isMuted}
+          onEnded={() => onPlayPause()}
+        />
+      )}
+
+      {/* Main Review Stage */}
+      <div className="preview-stage-layout">
+        <div className="preview-canvas-wrapper">
+          <canvas
+            ref={canvasRef}
+            width={1080}
+            height={1920}
+            className="preview-editorial-canvas"
+            onClick={onPlayPause}
+          />
+
+          {showSafeAreas && (
+            <div className="preview-safe-overlay">
+              <div className="safe-margin-top">Safe Top (Header / Notch)</div>
+              <div className="safe-margin-right">Actions Sidebar</div>
+              <div className="safe-margin-bottom">Caption / Sound Info</div>
+            </div>
+          )}
+        </div>
+
+        {/* Right Info Strip */}
+        <div className="preview-info-strip">
+          <div className="info-card-block">
+            <span className="info-label">Active Phrase</span>
+            <p className="active-lyric-display">
+              {activeBlock ? `"${activeBlock.text}"` : <span className="text-dim">Between phrases...</span>}
+            </p>
+            {activeBlock && (
+              <div className="phrase-meta-row">
+                <span className="badge-subtle">Index: {activeIndex + 1} / {visualBlocks.length}</span>
+                <span className="badge-subtle">Layout: {activeBlock.layoutType}</span>
+                <span className="badge-subtle">{(activeBlock.duration).toFixed(2)}s</span>
+              </div>
+            )}
+          </div>
+
+          <div className="info-card-block">
+            <span className="info-label">Synchronization Engine</span>
+            <div className="engine-status-list">
+              <div className="engine-status-item">
+                <CheckCircle2 size={13} className="text-emerald" />
+                <span>Deterministic 60 FPS clock</span>
+              </div>
+              <div className="engine-status-item">
+                <CheckCircle2 size={13} className="text-emerald" />
+                <span>Exact Canvas-to-Export Parity</span>
+              </div>
+              <div className="engine-status-item">
+                <Disc size={13} className="text-sand" />
+                <span>Source: {timingSource}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="info-card-block cta-block">
+            <button
+              type="button"
+              className="btn btn-primary btn-block"
+              onClick={() => onNavigateTab('export')}
+            >
+              <span>Ready to Export Video</span>
+              <ArrowRight size={14} />
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-block"
+              onClick={() => onNavigateTab('design')}
+            >
+              <span>Back to Design Controls</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Persistent Cinema Transport Bar */}
+      <div className="cinema-transport-bar">
+        {/* Scrubber */}
+        <div className="transport-scrub-row">
+          <input
+            type="range"
+            min="0"
+            max={totalDuration || 1}
+            step="0.02"
+            value={currentTime}
+            onChange={(e) => onTimeUpdate(parseFloat(e.target.value))}
+            className="transport-scrubber"
+          />
+        </div>
+
+        <div className="transport-button-row">
+          <div className="transport-group-left">
+            <button
+              type="button"
+              className="transport-btn play-main-btn"
+              onClick={onPlayPause}
+              title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+            >
+              {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+            </button>
+            <button
+              type="button"
+              className="transport-btn"
+              onClick={onRestart}
+              title="Restart"
+            >
+              <RotateCcw size={15} />
+            </button>
+            <button
+              type="button"
+              className="transport-btn"
+              onClick={onPrevLine}
+              title="Previous Lyric ([)"
+            >
+              <SkipBack size={15} />
+            </button>
+            <button
+              type="button"
+              className="transport-btn"
+              onClick={onNextLine}
+              title="Next Lyric (])"
+            >
+              <SkipForward size={15} />
+            </button>
+
+            <div className="cinema-timecode">
+              <span className="current">{formatSecondsToTimecode(currentTime)}</span>
+              <span className="sep">/</span>
+              <span className="total">{formatSecondsToTimecode(totalDuration)}</span>
+            </div>
+          </div>
+
+          <div className="transport-group-right">
+            {/* Speed Selector */}
+            <div className="speed-selector">
+              {[0.5, 1.0, 1.5, 2.0].map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className={`speed-btn ${playbackSpeed === s ? 'is-active' : ''}`}
+                  onClick={() => setPlaybackSpeed(s)}
+                >
+                  {s}x
+                </button>
+              ))}
+            </div>
+
+            {/* Mute Toggle */}
+            <button
+              type="button"
+              className={`transport-btn ${isMuted ? 'text-dim' : ''}`}
+              onClick={() => setIsMuted(!isMuted)}
+              title={isMuted ? 'Unmute' : 'Mute'}
+            >
+              {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            </button>
+
+            {/* Safe Area Toggle */}
+            <button
+              type="button"
+              className={`transport-btn ${showSafeAreas ? 'is-highlighted' : ''}`}
+              onClick={() => setShowSafeAreas(!showSafeAreas)}
+              title="Toggle TikTok / Reels Safe Margins"
+            >
+              <Layers size={16} />
+            </button>
+
+            {/* Fullscreen */}
+            <button
+              type="button"
+              className="transport-btn"
+              onClick={toggleFullscreen}
+              title="Toggle Fullscreen"
+            >
+              {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};

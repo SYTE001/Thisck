@@ -28,6 +28,43 @@ const BREAK_BEFORE_WORDS = new Set([
   'with', 'without', 'into', 'under', 'over', 'from', 'before', 'after',
 ]);
 
+function partitionLineWords(words: string[]): string[][] {
+  if (words.length <= 4) return [words];
+  if (words.length === 5) {
+    return [words.slice(0, 3), words.slice(3)];
+  }
+  const groups: string[][] = [];
+  let i = 0;
+  while (i < words.length) {
+    const remaining = words.length - i;
+    if (remaining <= 5) {
+      if (remaining <= 2 && groups.length > 0) {
+        const prev = groups.pop()!;
+        const combined = [...prev, ...words.slice(i)];
+        const mid = Math.ceil(combined.length / 2);
+        groups.push(combined.slice(0, mid));
+        groups.push(combined.slice(mid));
+      } else {
+        groups.push(words.slice(i));
+      }
+      break;
+    }
+    let take = 4;
+    for (let test = 3; test <= 5; test++) {
+      if (i + test < words.length) {
+        const nextWord = words[i + test].toLowerCase().replace(/[^a-z]/g, '');
+        if (BREAK_BEFORE_WORDS.has(nextWord) || /[,.!?;:—-]$/.test(words[i + test - 1])) {
+          take = test;
+          break;
+        }
+      }
+    }
+    groups.push(words.slice(i, i + take));
+    i += take;
+  }
+  return groups;
+}
+
 /**
  * Deterministically composes visual blocks for a single lyric line.
  */
@@ -66,8 +103,40 @@ export function chunkLyricLine(
 
   if (totalWords === 0) return [];
 
-  // V2 Rule: If no word-level timing exists, keep the phrase as ONE visual state
+  // V2 Rule: If no word-level timing exists
   if (!originalWords || originalWords.length !== totalWords) {
+    // If long phrase (duration >= 4.5s and 5+ words), break into editorial blocks
+    if (duration >= 4.5 && totalWords >= 5) {
+      const groups = partitionLineWords(rawWords);
+      const blocks: VisualLyricBlock[] = [];
+      let curStart = startTime;
+
+      for (let i = 0; i < groups.length; i++) {
+        const gWords = groups[i];
+        const gDuration = (gWords.length / totalWords) * duration;
+        const gEnd = i === groups.length - 1 ? endTime : curStart + gDuration;
+        const { layoutType, lines, fontSizeMultiplier } = determineLayout(gWords, projectSeed + i);
+
+        blocks.push({
+          id: `${lineId}-v${i}`,
+          sourceLineId: lineId,
+          text: gWords.join(' '),
+          lines,
+          startTime: curStart,
+          endTime: gEnd,
+          duration: Math.max(0.1, gEnd - curStart),
+          layoutType,
+          words: undefined,
+          sceneIndex: sceneStartIndex,
+          fontSizeMultiplier,
+          type: line.type,
+        });
+
+        curStart = gEnd;
+      }
+      return blocks;
+    }
+
     const { layoutType, lines, fontSizeMultiplier } = determineLayout(rawWords, projectSeed);
     return [
       {

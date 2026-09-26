@@ -70,14 +70,32 @@ export function getAdaptiveMotionTimings(duration: number): {
     return { enterSec: 0, exitSec: 0, holdSec: 0, isMinimal: true };
   }
 
-  // V2 Rule: Entrance animation must be front-loaded (100-140ms preferred).
-  // Animation must begin exactly from the lyric's actual start timestamp.
-  const enterSec = Math.min(0.14, Math.max(0.08, duration * 0.3));
-  const exitSec = Math.min(0.14, Math.max(0.08, duration * 0.3));
-  
-  const holdSec = Math.max(0, duration - enterSec - exitSec);
   const isMinimal = duration < 0.45;
+  let enterSec: number;
+  let exitSec: number;
 
+  if (duration < 0.45) {
+    enterSec = 0.05;
+    exitSec = 0.05;
+  } else if (duration < 1.0) {
+    // Fast segment: compressed entrance/exit (60-120ms)
+    enterSec = Math.min(0.12, Math.max(0.06, duration * 0.14));
+    exitSec = Math.min(0.12, Math.max(0.06, duration * 0.14));
+  } else if (duration < 2.0) {
+    enterSec = 0.16;
+    exitSec = 0.16;
+  } else {
+    // Normal / long segment (180-240ms)
+    enterSec = 0.22;
+    exitSec = 0.22;
+  }
+
+  if (enterSec + exitSec > duration * 0.6) {
+    enterSec = duration * 0.25;
+    exitSec = duration * 0.25;
+  }
+
+  const holdSec = Math.max(0, duration - enterSec - exitSec);
   return { enterSec, exitSec, holdSec, isMinimal };
 }
 

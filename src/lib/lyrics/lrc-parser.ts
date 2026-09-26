@@ -125,7 +125,6 @@ export function parseLrc(content: string, defaultMaxHoldSec: number = 4.5): Pars
     // Format B: [00:12.30] word [00:12.80] word
     const words: Word[] = [];
     const wordPattern = /([^\s<\[]+)(?:<(\d{1,2}:\d{2}(?:\.\d{1,3})?)>|\[(\d{1,2}:\d{2}(?:\.\d{1,3})?)\])?/g;
-    let cleanText = '';
     const wordMatches = Array.from(entry.rawText.matchAll(wordPattern));
 
     let hasWordTimestamps = false;

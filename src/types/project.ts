@@ -1,20 +1,32 @@
 import type { LyricLine, TrackMetadata, TimingSource } from './lyrics';
 
+export type ActiveTab = 'projects' | 'lyrics' | 'timeline' | 'design' | 'preview' | 'export' | 'settings';
+
+export type PresetName = 
+  | 'Deep Forest' 
+  | 'Olive Editorial' 
+  | 'Sand Paper' 
+  | 'Off White Editorial' 
+  | 'Editorial Burgundy' 
+  | 'Cream Editorial' 
+  | 'Midnight Vintage' 
+  | 'Custom';
+
 export interface StyleConfig {
-  presetName: 'Editorial Burgundy' | 'Cream Editorial' | 'Midnight Vintage' | 'Custom';
-  primaryBg: string; // e.g. #3A0505 or #5B0B0B
-  secondaryBg: string; // e.g. #F4E7D3
-  primaryTextColor: string; // e.g. #F1D39A
-  secondaryTextColor: string; // e.g. #3A0505
-  accentColor: string; // e.g. #8D6650
-  fontFamily: 'Cormorant Garamond' | 'Playfair Display' | 'DM Serif Display' | 'Libre Baskerville';
+  presetName: PresetName | string;
+  primaryBg: string;
+  secondaryBg: string;
+  primaryTextColor: string;
+  secondaryTextColor: string;
+  accentColor: string;
+  fontFamily: 'Cormorant Garamond' | 'Playfair Display' | 'DM Serif Display' | 'Libre Baskerville' | string;
   fontSizeRatio: number; // 0.8 - 1.5, default 1.0
   lineHeight: number; // default 1.15
   letterSpacing: number; // in px
   textAlign: 'center' | 'left';
   grainIntensity: number; // 0.0 to 1.0, default 0.18
   vignetteIntensity: number; // 0.0 to 1.0, default 0.25
-  alternatingScenes: boolean; // alternate burgundy / cream
+  alternatingScenes: boolean; // alternate primary / secondary
   showStarDecoration: boolean; // 4-point star at bottom
   maxLinesOnScreen: number; // 1 or 2, default 2
   showSupportingLyrics?: boolean;
