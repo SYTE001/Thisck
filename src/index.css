@@ -408,6 +408,7 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .workspace-page {
@@ -1617,7 +1618,8 @@ body {
   grid-template-columns: 1fr 440px;
   gap: var(--space-xl);
   max-width: 1400px;
-  height: calc(100vh - 54px);
+  height: 100%;
+  max-height: 100%;
   padding: var(--space-lg) var(--space-xl);
   overflow: hidden;
   min-height: 0;
@@ -1770,13 +1772,15 @@ body {
   overflow: hidden;
   min-height: 0;
   min-width: 0;
+  height: 100%;
 }
 
 .controls-scrollable {
-  flex: 1;
+  flex: 1 1 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--space-lg);
-  padding-bottom: 32px;
+  padding-bottom: 80px;
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
@@ -1790,6 +1794,7 @@ body {
 }
 
 .controls-header {
+  flex-shrink: 0;
   margin-bottom: var(--space-xs);
 }
 
@@ -1808,10 +1813,12 @@ body {
 
 /* Accordion sections */
 .accordion-section {
+  flex-shrink: 0;
+  width: 100%;
+  height: auto;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   background-color: var(--bg-app);
-  overflow: hidden;
 }
 
 .accordion-header {
@@ -1827,6 +1834,11 @@ body {
   font-weight: 600;
   cursor: pointer;
   transition: background-color 120ms ease;
+  border-radius: calc(var(--radius-sm) - 1px) calc(var(--radius-sm) - 1px) 0 0;
+}
+
+.accordion-header:only-child {
+  border-radius: calc(var(--radius-sm) - 1px);
 }
 
 .accordion-header:hover {
@@ -1841,6 +1853,7 @@ body {
 }
 
 .accordion-content {
+  position: static;
   padding: 14px;
   display: flex;
   flex-direction: column;

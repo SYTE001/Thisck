@@ -492,7 +492,7 @@ export const DesignPage: React.FC<DesignPageProps> = ({
                   />
                 </div>
 
-                <div className="accordion-section" style={{ marginTop: '1rem', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                <div className="accordion-section" style={{ marginTop: '1rem', border: '1px solid var(--border-subtle)', borderRadius: '6px' }}>
                   <button
                     type="button"
                     className="accordion-header"
