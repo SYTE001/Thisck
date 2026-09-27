@@ -10,15 +10,16 @@ export function getAnimationState(
   preset: TextAnimationPreset,
   block: VisualLyricBlock,
   currentTime: number,
-  motion: MotionFrameState
+  motion: MotionFrameState,
+  config?: any
 ): LyricsAnimationState {
   switch (preset) {
     case 'karaoke':
-      return calculateKaraokeState(block, currentTime, motion);
+      return calculateKaraokeState(block, currentTime, motion, config);
     case 'kinetic':
-      return calculateKineticState(block, currentTime, motion);
+      return calculateKineticState(block, currentTime, motion, config);
     case 'cinematic':
-      return calculateCinematicState(block, currentTime, motion);
+      return calculateCinematicState(block, currentTime, motion, config);
     default: {
       // Fallback to legacy presets
       const legacyState = calculateTextAnimationState(block, currentTime, preset);

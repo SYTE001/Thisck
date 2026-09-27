@@ -61,7 +61,7 @@ export function App() {
 
   // PRD Section 19-25: Motion layer configuration (text animation, overlays, watermark)
   const [motionLayers, setMotionLayers] = useState<MotionLayersConfig>({
-    textAnimation: 'slide-up',
+    textAnimation: 'karaoke',
     rain: { ...DEFAULT_RAIN_CONFIG },
     watermark: { ...DEFAULT_WATERMARK_CONFIG },
   });
@@ -381,6 +381,9 @@ export function App() {
             setTrack(parsed.project.track);
             setStyle(parsed.project.style);
             setExportSettings(parsed.project.exportSettings);
+            if (parsed.project.motionLayers) {
+              setMotionLayers(parsed.project.motionLayers);
+            }
           } else {
             handleLyricsLoaded(parsed.lines, parsed.track);
           }
@@ -515,7 +518,9 @@ export function App() {
             trackTitle={track.title}
             artistName={track.artist}
             validation={validation}
+            motionLayers={motionLayers}
             onUpdateStyle={(newS) => setStyle((prev) => ({ ...prev, ...newS }))}
+            onUpdateMotionLayers={(ml) => setMotionLayers((prev) => ({ ...prev, ...ml }))}
             onApplyPreset={(pName) => {
               if (STYLE_PRESETS[pName]) {
                 setStyle(STYLE_PRESETS[pName]);
@@ -546,6 +551,7 @@ export function App() {
             trackTitle={track.title}
             artistName={track.artist}
             timingSource={track.timingSource}
+            motionLayers={motionLayers}
             onUpdateExportSettings={(s) => setExportSettings((prev) => ({ ...prev, ...s }))}
             onTimeUpdate={(t) => setCurrentTime(t)}
             onPlayPause={() => setIsPlaying(!isPlaying)}

@@ -179,6 +179,7 @@ export async function exportVideo(options: VideoExportOptions): Promise<Blob> {
   }
 
   const textAnimationPreset: TextAnimationPreset = motionLayers?.textAnimation ?? 'slide-up';
+  const textAnimationConfig = motionLayers?.textAnimationConfig;
 
   // Try WebCodecs + mp4-muxer (pioneered deterministic pipeline)
   const isWebCodecsSupported = typeof window !== 'undefined' && 'VideoEncoder' in window;
@@ -202,6 +203,7 @@ export async function exportVideo(options: VideoExportOptions): Promise<Blob> {
       trackTitle,
       artistName,
       textAnimationPreset,
+      textAnimationConfig,
       compositor,
       jobState,
       onProgress,
@@ -228,6 +230,7 @@ export async function exportVideo(options: VideoExportOptions): Promise<Blob> {
     trackTitle,
     artistName,
     textAnimationPreset,
+    textAnimationConfig,
     compositor,
     jobState,
     onProgress,
@@ -256,6 +259,7 @@ interface InternalExportParams {
   trackTitle?: string;
   artistName?: string;
   textAnimationPreset: TextAnimationPreset;
+  textAnimationConfig?: any;
   compositor: LayerCompositor;
   jobState: RenderJobState;
   onProgress?: (progress: ExportProgress) => void;
@@ -268,11 +272,11 @@ function renderFrame(
   ctx: CanvasRenderingContext2D,
   params: Pick<
     InternalExportParams,
-    'width' | 'height' | 'lines' | 'style' | 'visualBlocks' | 'trackTitle' | 'artistName' | 'textAnimationPreset' | 'compositor'
+    'width' | 'height' | 'lines' | 'style' | 'visualBlocks' | 'trackTitle' | 'artistName' | 'textAnimationPreset' | 'textAnimationConfig' | 'compositor'
   >,
   currentTime: number
 ): void {
-  const { width, height, lines, style, visualBlocks, trackTitle, artistName, textAnimationPreset, compositor } = params;
+  const { width, height, lines, style, visualBlocks, trackTitle, artistName, textAnimationPreset, textAnimationConfig, compositor } = params;
 
   // 1. Editorial lyric frame (background, text, decoration)
   renderEditorialFrame(ctx, {
@@ -285,6 +289,7 @@ function renderFrame(
     trackTitle,
     artistName,
     textAnimationPreset,
+    textAnimationConfig,
     isPreview: false,
   });
 
@@ -333,6 +338,7 @@ async function exportWithWebCodecs(params: InternalExportParams): Promise<Blob> 
     trackTitle,
     artistName,
     textAnimationPreset,
+    textAnimationConfig,
     compositor,
     jobState,
     onProgress,
@@ -426,7 +432,7 @@ async function exportWithWebCodecs(params: InternalExportParams): Promise<Blob> 
 
     const currentTime = startTimeSec + (f / fps);
 
-    renderFrame(ctx, { width, height, lines, style, visualBlocks, trackTitle, artistName, textAnimationPreset, compositor }, currentTime);
+    renderFrame(ctx, { width, height, lines, style, visualBlocks, trackTitle, artistName, textAnimationPreset, textAnimationConfig, compositor }, currentTime);
 
     const timestampUs = f * frameDurationUs;
     const videoFrame = new VideoFrame(canvas, {
@@ -552,6 +558,7 @@ async function exportWithMediaRecorder(params: InternalExportParams): Promise<Bl
     trackTitle,
     artistName,
     textAnimationPreset,
+    textAnimationConfig,
     compositor,
     jobState,
     onProgress,
@@ -602,7 +609,7 @@ async function exportWithMediaRecorder(params: InternalExportParams): Promise<Bl
         }
 
         const currentTime = startTimeSec + (f / fps);
-        renderFrame(ctx, { width: params.width, height: params.height, lines, style, visualBlocks, trackTitle, artistName, textAnimationPreset, compositor }, currentTime);
+        renderFrame(ctx, { width: params.width, height: params.height, lines, style, visualBlocks, trackTitle, artistName, textAnimationPreset, textAnimationConfig, compositor }, currentTime);
 
         if (f % 15 === 0) {
           const elapsedMs = performance.now() - renderStartMs;

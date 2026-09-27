@@ -5,7 +5,8 @@ import { type MotionFrameState, easeEditorialEntrance, easeEditorialExit } from 
 export function calculateKineticState(
   block: VisualLyricBlock, 
   currentTime: number, 
-  motion: MotionFrameState
+  motion: MotionFrameState,
+  config: any = {}
 ): LyricsAnimationState {
   const line: LineAnimationState = {
     opacity: 1, // Let word level handle opacity
@@ -22,9 +23,10 @@ export function calculateKineticState(
     return { line, words: [] };
   }
 
-  const staggerMs = 0.04; // 40ms stagger per word
-  const enterDuration = 0.25;
-  const exitDuration = 0.2;
+  const staggerMs = config.wordStagger ?? 0.05; // default 50ms
+  const enterDuration = config.enterDuration ? config.enterDuration / 1000 : 0.25;
+  const exitDuration = config.exitDuration ? config.exitDuration / 1000 : 0.2;
+  const intensity = config.intensity ?? 1.0;
 
   const words: WordAnimationState[] = block.words.map((w, idx) => {
     // Determine word-specific enter/exit timings based on block bounds but staggered
@@ -40,8 +42,8 @@ export function calculateKineticState(
       const eased = easeEditorialEntrance(progress);
       
       opacity = eased;
-      scale = 0.88 + (0.12 * eased);
-      translateY = (1 - eased) * 12; // slight Y movement up
+      scale = 1.0 - (0.12 * intensity) + (0.12 * intensity * eased); // e.g. 0.88 -> 1.0
+      translateY = (1 - eased) * 12 * intensity; // slight Y movement up
     }
     
     // Exit
@@ -52,7 +54,7 @@ export function calculateKineticState(
       const eased = easeEditorialExit(progress);
       
       opacity = 1 - eased;
-      scale = 1.0 - (0.04 * eased); // 1.00 -> 0.96
+      scale = 1.0 - (0.04 * intensity * eased); // 1.00 -> 0.96
     }
 
     // Active Emphasis
@@ -62,8 +64,9 @@ export function calculateKineticState(
       const wElapsed = currentTime - w.startTime;
       const wProgress = Math.max(0, Math.min(1, wElapsed / wDuration));
       
-      // 1.00 -> 1.08 -> 1.00
-      const emphasis = Math.sin(wProgress * Math.PI) * 0.08;
+      // 1.00 -> targetScale -> 1.00
+      const targetScale = config.activeWordScale ?? 1.1;
+      const emphasis = Math.sin(wProgress * Math.PI) * (targetScale - 1.0) * intensity;
       // Add emphasis on top of current scale
       scale += emphasis;
     }

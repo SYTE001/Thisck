@@ -20,7 +20,7 @@ export interface LyricsAnimationState {
 export interface AnimationPresetConfig {
   enterDuration?: number;
   exitDuration?: number;
-  easing?: (t: number) => number;
+  easing?: string;
   intensity?: number;
   stagger?: number;
   activeScale?: number;

@@ -5,7 +5,8 @@ import type { MotionFrameState } from '../../../motion/adaptive-motion';
 export function calculateCinematicState(
   _block: VisualLyricBlock, 
   _currentTime: number, 
-  motion: MotionFrameState
+  motion: MotionFrameState,
+  config: any = {}
 ): LyricsAnimationState {
   const pp = motion.phaseProgress;
   const phase = motion.phase;
@@ -17,16 +18,19 @@ export function calculateCinematicState(
     blur: 0
   };
 
+  const blurAmount = config.blurAmount ?? 4;
+  const verticalMovement = config.verticalMovement ?? 10;
+
   if (phase === 'enter') {
-    // translateY 10px -> 0, scale 0.98 -> 1, blur 4px -> 0
-    line.translateY = (1 - pp) * 10;
+    // translateY verticalMovement -> 0, scale 0.98 -> 1, blur blurAmount -> 0
+    line.translateY = (1 - pp) * verticalMovement;
     line.scale = 0.98 + (0.02 * pp);
-    line.blur = (1 - pp) * 4;
+    line.blur = (1 - pp) * blurAmount;
   } else if (phase === 'exit') {
-    // translateY 0 -> -8px, blur 0 -> 3px
-    line.translateY = -8 * pp;
+    // translateY 0 -> -verticalMovement * 0.8, blur 0 -> blurAmount * 0.75
+    line.translateY = -(verticalMovement * 0.8) * pp;
     line.scale = 1.0;
-    line.blur = pp * 3;
+    line.blur = pp * (blurAmount * 0.75);
   } else if (phase === 'before' || phase === 'after') {
     line.opacity = 0;
   } else {

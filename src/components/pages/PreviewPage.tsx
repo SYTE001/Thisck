@@ -14,7 +14,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import type { LyricLine, VisualLyricBlock, TimingSource } from '../../types/lyrics';
-import type { StyleConfig, ActiveTab } from '../../types/project';
+import type { StyleConfig, ActiveTab, MotionLayersConfig } from '../../types/project';
 import { formatSecondsToTimecode } from '../../lib/lyrics/lrc-parser';
 import { getActiveVisualBlockAt } from '../../lib/layout/lyric-chunker';
 import { renderEditorialFrame } from '../../lib/render/canvas-renderer';
@@ -39,6 +39,7 @@ interface PreviewPageProps {
   resolvedOutputRange?: { startTime: number; endTime: number; mode: string };
   exportSettings?: any;
   onUpdateExportSettings?: (settings: any) => void;
+  motionLayers?: MotionLayersConfig;
 }
 
 export const PreviewPage: React.FC<PreviewPageProps> = ({
@@ -61,6 +62,7 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
   resolvedOutputRange,
   exportSettings,
   onUpdateExportSettings,
+  motionLayers,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -101,8 +103,10 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
       visualBlocks,
       trackTitle,
       artistName,
+      textAnimationPreset: motionLayers?.textAnimation,
+      textAnimationConfig: motionLayers?.textAnimationConfig,
     });
-  }, [_lines, currentTime, style, visualBlocks, trackTitle, artistName]);
+  }, [_lines, currentTime, style, visualBlocks, trackTitle, artistName, motionLayers]);
 
   // Fullscreen toggle
   const toggleFullscreen = () => {

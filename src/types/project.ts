@@ -62,6 +62,17 @@ export interface ExportSettings {
 export interface MotionLayersConfig {
   /** Text animation preset applied to all lyric blocks */
   textAnimation: TextAnimationPreset;
+  /** Custom settings for the selected text animation */
+  textAnimationConfig?: {
+    intensity?: number;
+    enterDuration?: number;
+    exitDuration?: number;
+    highlightIntensity?: number;
+    activeWordScale?: number;
+    wordStagger?: number;
+    blurAmount?: number;
+    verticalMovement?: number;
+  };
   /** Rain overlay settings */
   rain: RainOverlayConfig;
   /** Watermark layer settings */

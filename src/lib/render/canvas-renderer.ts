@@ -19,6 +19,8 @@ export interface RenderOptions {
   artistName?: string;
   /** Text animation preset. Default 'slide-up' (matches original behaviour). */
   textAnimationPreset?: TextAnimationPreset;
+  /** Text animation config */
+  textAnimationConfig?: any;
   /**
    * Whether this is a preview render.
    * PRD Section 7: preview can be lower quality than export.
@@ -105,7 +107,8 @@ export function renderEditorialFrame(
     projectSeed = 42,
     trackTitle,
     artistName,
-    textAnimationPreset = 'slide-up',
+    textAnimationPreset = 'karaoke',
+    textAnimationConfig = {},
     isPreview: _isPreview = false,
   } = options;
 
@@ -182,8 +185,8 @@ export function renderEditorialFrame(
   // PRIORITY 1: NO GHOSTING. Zero previous-lyric shadow, blur, opacity, or trail.
   if (activeBlock) {
     // PRD Section 22: Calculate dynamic animation state (cheap per frame)
-    const motion = calculateBlockMotion(activeBlock, currentTime, 8);
-    const lyricsAnimState = getAnimationState(textAnimationPreset, activeBlock, currentTime, motion);
+    const motion = calculateBlockMotion(activeBlock, currentTime, 8, textAnimationConfig);
+    const lyricsAnimState = getAnimationState(textAnimationPreset, activeBlock, currentTime, motion, textAnimationConfig);
     const lineState = lyricsAnimState.line;
     const animState = {
       opacity: lineState.opacity,

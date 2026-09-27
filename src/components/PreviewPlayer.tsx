@@ -9,7 +9,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import type { LyricLine, VisualLyricBlock } from '../types/lyrics';
-import type { StyleConfig } from '../types/project';
+import type { StyleConfig, MotionLayersConfig } from '../types/project';
 import { renderEditorialFrame } from '../lib/render/canvas-renderer';
 import { formatSecondsToTimecode } from '../lib/lyrics/lrc-parser';
 import { getActiveVisualBlockAt } from '../lib/layout/lyric-chunker';
@@ -24,6 +24,7 @@ interface PreviewPlayerProps {
   audioBlobUrl: string | null;
   trackTitle?: string;
   artistName?: string;
+  motionLayers?: MotionLayersConfig;
   onTimeUpdate: (time: number) => void;
   onPlayPause: () => void;
   onRestart: () => void;
@@ -41,6 +42,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
   audioBlobUrl,
   trackTitle,
   artistName,
+  motionLayers,
   onTimeUpdate,
   onPlayPause,
   onRestart,
@@ -90,8 +92,10 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
       visualBlocks,
       trackTitle,
       artistName,
+      textAnimationPreset: motionLayers?.textAnimation,
+      textAnimationConfig: motionLayers?.textAnimationConfig,
     });
-  }, [currentTime, lines, style, visualBlocks, trackTitle, artistName]);
+  }, [currentTime, lines, style, visualBlocks, trackTitle, artistName, motionLayers]);
 
   useEffect(() => {
     drawCurrentFrame();

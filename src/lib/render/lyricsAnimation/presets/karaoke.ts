@@ -5,7 +5,8 @@ import type { MotionFrameState } from '../../../motion/adaptive-motion';
 export function calculateKaraokeState(
   block: VisualLyricBlock, 
   currentTime: number, 
-  motion: MotionFrameState
+  motion: MotionFrameState,
+  config: any = {}
 ): LyricsAnimationState {
   const line: LineAnimationState = {
     opacity: motion.opacity,
@@ -33,9 +34,10 @@ export function calculateKaraokeState(
       const wElapsed = currentTime - w.startTime;
       const wProgress = Math.max(0, Math.min(1, wElapsed / wDuration));
       
-      // Scale 1.00 -> 1.04 -> 1.00
-      const emphasis = Math.sin(wProgress * Math.PI) * 0.04;
-      scale = 1.0 + emphasis;
+      // Scale 1.00 -> targetScale -> 1.00
+      const targetScale = config.activeWordScale ?? 1.04;
+      const emphasis = Math.sin(wProgress * Math.PI) * (targetScale - 1.0);
+      scale = 1.0 + emphasis * (config.highlightIntensity ?? 1.0);
     } else if (isPast) {
       opacity = motion.opacity; // Keep past words fully lit like typical karaoke
     }

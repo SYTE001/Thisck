@@ -109,7 +109,8 @@ export function getAdaptiveMotionTimings(duration: number): {
 export function calculateBlockMotion(
   block: VisualLyricBlock | LyricLine | null,
   currentTime: number,
-  baseShiftY: number = 8
+  baseShiftY: number = 8,
+  config: any = {}
 ): MotionFrameState {
   if (!block || block.startTime === null || block.endTime === null) {
     return {
@@ -158,6 +159,15 @@ export function calculateBlockMotion(
   const elapsed = currentTime - startTime;
   const totalProgress = Math.max(0, Math.min(1, elapsed / duration));
   const timings = getAdaptiveMotionTimings(duration);
+
+  // Apply custom config if provided
+  if (config.enterDuration !== undefined) {
+    timings.enterSec = config.enterDuration / 1000;
+  }
+  if (config.exitDuration !== undefined) {
+    timings.exitSec = config.exitDuration / 1000;
+  }
+  timings.holdSec = Math.max(0, duration - timings.enterSec - timings.exitSec);
 
   let opacity = 1.0;
   let translateY = 0;
