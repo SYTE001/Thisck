@@ -4,6 +4,7 @@ import type { MotionFrameState } from '../../motion/adaptive-motion';
 import { calculateKaraokeState } from './presets/karaoke';
 import { calculateKineticState } from './presets/kinetic';
 import { calculateCinematicState } from './presets/cinematic';
+import { calculateWordByWordState } from './presets/wordByWord';
 import { calculateTextAnimationState, type TextAnimationPreset } from '../text-animation';
 
 export function getAnimationState(
@@ -20,6 +21,8 @@ export function getAnimationState(
       return calculateKineticState(block, currentTime, motion, config);
     case 'cinematic':
       return calculateCinematicState(block, currentTime, motion, config);
+    case 'word-by-word':
+      return calculateWordByWordState(block, currentTime, motion, config);
     default: {
       // Fallback to legacy presets
       const legacyState = calculateTextAnimationState(block, currentTime, preset);

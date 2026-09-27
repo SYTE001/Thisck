@@ -6,6 +6,7 @@ import { chunkAllLyricLines, getActiveVisualBlockAt } from '../layout/lyric-chun
 import { TextMeasurementCache, getNoiseCanvas } from './layer-cache';
 import { applyTextAnimationTransform } from './text-animation';
 import { getAnimationState } from './lyricsAnimation/animationEngine';
+import { getDistributedWords } from './lyricsAnimation/presets/wordByWord';
 
 export interface RenderOptions {
   width: number;
@@ -297,110 +298,121 @@ export function renderEditorialFrame(
         ctx.letterSpacing = `${animState.letterSpacing}px`;
       }
 
-      // Check if word-level progressive highlighting is available
-      const hasWordTiming = activeBlock.words && activeBlock.words.length > 0;
+      // Check if word-level progressive animation is available
+      const isWordAnimatedPreset =
+        textAnimationPreset === 'word-by-word' ||
+        textAnimationPreset === 'karaoke' ||
+        textAnimationPreset === 'kinetic';
+
+      const effectiveWords =
+        activeBlock.words && activeBlock.words.length > 0
+          ? activeBlock.words
+          : (isWordAnimatedPreset ? getDistributedWords(activeBlock) : undefined);
+
+      const hasWordAnimation = !!(
+        effectiveWords &&
+        effectiveWords.length > 0 &&
+        lyricsAnimState.words &&
+        lyricsAnimState.words.length > 0
+      );
+
+      let wordCursor = 0;
+      const renderLyricLine = (lineText: string, lineY: number, shiftX: number = 0) => {
+        const lineWordCount = lineText.trim().split(/\s+/).filter(Boolean).length;
+        const lineWords = hasWordAnimation ? effectiveWords!.slice(wordCursor, wordCursor + lineWordCount) : [];
+        const wordStartIndex = wordCursor;
+        wordCursor += lineWordCount;
+
+        if (!hasWordAnimation || lineWords.length === 0) {
+          ctx.textAlign = 'center';
+          ctx.fillText(lineText, width / 2 + shiftX, lineY);
+          return;
+        }
+
+        let totalLineWidth = 0;
+        const wordWidths: number[] = [];
+        const spaceWidth = ctx.measureText(' ').width;
+
+        lineWords.forEach((w) => {
+          const wWidth = measureLine(w.text, finalFontSpec);
+          wordWidths.push(wWidth);
+          totalLineWidth += wWidth + spaceWidth;
+        });
+        if (lineWords.length > 0) {
+          totalLineWidth -= spaceWidth;
+        }
+
+        let currentX = width / 2 - totalLineWidth / 2 + shiftX;
+
+        lineWords.forEach((wordItem, wRelIdx) => {
+          const globalWordIdx = wordStartIndex + wRelIdx;
+          const wordState = lyricsAnimState.words[globalWordIdx];
+
+          if (!wordState || wordState.opacity > 0.001) {
+            ctx.save();
+            ctx.fillStyle = textColor;
+            let drawX = currentX;
+            let drawY = lineY;
+
+            if (wordState) {
+              ctx.globalAlpha = Math.max(0, Math.min(1, wordState.opacity));
+              const centerX = currentX + wordWidths[wRelIdx] / 2;
+              const centerY = lineY;
+              ctx.translate(centerX, centerY + wordState.translateY);
+              ctx.scale(wordState.scale, wordState.scale);
+              ctx.translate(-centerX, -centerY);
+            } else {
+              const isWordActive = globalWordIdx <= motion.activeWordIndex;
+              ctx.globalAlpha = isWordActive ? animState.opacity : animState.opacity * 0.42;
+            }
+
+            ctx.textAlign = 'left';
+            ctx.fillText(wordItem.text, drawX, drawY);
+            ctx.restore();
+          }
+
+          currentX += wordWidths[wRelIdx] + spaceWidth;
+        });
+      };
 
       // Render based on Layout Type
       switch (activeBlock.layoutType) {
         case 'offset-stagger': {
-          // Asymmetric editorial layout: Line 1 shifted left, Line 2 shifted right
           const totalLines = lineList.length;
           const staggerOffsetPx = width * 0.05; // ~54px
 
           lineList.forEach((lineText, idx) => {
             const lineY = centerY + (idx - (totalLines - 1) / 2) * lineHeightPx;
             const shiftX = idx === 0 ? -staggerOffsetPx : staggerOffsetPx;
-            ctx.textAlign = 'center';
-            ctx.fillText(lineText, width / 2 + shiftX, lineY);
+            renderLyricLine(lineText, lineY, shiftX);
           });
           break;
         }
 
         case 'stacked-3-line': {
-          // 3 stacked lines with slightly tighter line height
           const totalLines = lineList.length;
           const tightLineHeight = lineHeightPx * 0.95;
-          ctx.textAlign = 'center';
 
           lineList.forEach((lineText, idx) => {
             const lineY = centerY + (idx - (totalLines - 1) / 2) * tightLineHeight;
-            ctx.fillText(lineText, width / 2, lineY);
+            renderLyricLine(lineText, lineY, 0);
           });
           break;
         }
 
         case 'centered-hero': {
-          // Large single impactful phrase
-          ctx.textAlign = 'center';
-          ctx.fillText(lineList[0], width / 2, centerY);
+          renderLyricLine(lineList[0], centerY, 0);
           break;
         }
 
         case 'single-line':
         case 'balanced-2-line':
         default: {
-          // Centered standard editorial lines
-          ctx.textAlign = 'center';
           const totalLines = lineList.length;
-
-          if (!hasWordTiming) {
-            lineList.forEach((lineText, idx) => {
-              const lineY = centerY + (idx - (totalLines - 1) / 2) * lineHeightPx;
-              ctx.fillText(lineText, width / 2, lineY);
-            });
-          } else {
-            // Enhanced word-level animation across lines
-            const allWords = activeBlock.words!;
-            const wordsPerLine = Math.ceil(allWords.length / totalLines);
-
-            lineList.forEach((_, lineIdx) => {
-              const sliceStart = lineIdx * wordsPerLine;
-              const sliceEnd = Math.min(sliceStart + wordsPerLine, allWords.length);
-              const lineWords = allWords.slice(sliceStart, sliceEnd);
-              const lineY = centerY + (lineIdx - (totalLines - 1) / 2) * lineHeightPx;
-
-              let totalLineWidth = 0;
-              const wordWidths: number[] = [];
-              const spaceWidth = ctx.measureText(' ').width;
-
-              lineWords.forEach((w) => {
-                const wWidth = measureLine(w.text, finalFontSpec);
-                wordWidths.push(wWidth);
-                totalLineWidth += wWidth + spaceWidth;
-              });
-              totalLineWidth -= spaceWidth;
-
-              let currentX = width / 2 - totalLineWidth / 2;
-
-              lineWords.forEach((wordItem, wRelIdx) => {
-                const globalWordIdx = sliceStart + wRelIdx;
-                const wordState = lyricsAnimState.words[globalWordIdx];
-
-                ctx.save();
-                ctx.fillStyle = textColor;
-                let drawX = currentX;
-                let drawY = lineY;
-
-                if (wordState) {
-                  ctx.globalAlpha = Math.max(0, Math.min(1, wordState.opacity));
-                  const centerX = currentX + wordWidths[wRelIdx] / 2;
-                  const centerY = lineY;
-                  ctx.translate(centerX, centerY + wordState.translateY);
-                  ctx.scale(wordState.scale, wordState.scale);
-                  ctx.translate(-centerX, -centerY);
-                } else {
-                  const isWordActive = globalWordIdx <= motion.activeWordIndex;
-                  ctx.globalAlpha = isWordActive ? animState.opacity : animState.opacity * 0.42;
-                }
-
-                ctx.textAlign = 'left';
-                ctx.fillText(wordItem.text, drawX, drawY);
-                ctx.restore();
-
-                currentX += wordWidths[wRelIdx] + spaceWidth;
-              });
-            });
-          }
+          lineList.forEach((lineText, idx) => {
+            const lineY = centerY + (idx - (totalLines - 1) / 2) * lineHeightPx;
+            renderLyricLine(lineText, lineY, 0);
+          });
           break;
         }
       }

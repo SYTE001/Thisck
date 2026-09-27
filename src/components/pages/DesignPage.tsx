@@ -441,6 +441,13 @@ export const DesignPage: React.FC<DesignPageProps> = ({
                     >
                       Cinematic
                     </button>
+                    <button
+                      type="button"
+                      className={`segment-btn ${motionLayers.textAnimation === 'word-by-word' ? 'is-active' : ''}`}
+                      onClick={() => onUpdateMotionLayers({ textAnimation: 'word-by-word' })}
+                    >
+                      Word by Word
+                    </button>
                   </div>
                 </div>
 
@@ -613,6 +620,41 @@ export const DesignPage: React.FC<DesignPageProps> = ({
                         </>
                       )}
 
+                      {motionLayers.textAnimation === 'word-by-word' && (
+                        <>
+                          <div className="field-group">
+                            <div className="slider-label-row">
+                              <span className="field-label">Word Transition Speed</span>
+                              <span className="slider-value">{motionLayers.textAnimationConfig?.enterDuration ?? 210}ms</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="150"
+                              max="350"
+                              step="10"
+                              value={motionLayers.textAnimationConfig?.enterDuration ?? 210}
+                              onChange={(e) => onUpdateMotionLayers({ textAnimationConfig: { ...motionLayers.textAnimationConfig, enterDuration: parseInt(e.target.value) } })}
+                              className="range-slider"
+                            />
+                          </div>
+                          <div className="field-group">
+                            <div className="slider-label-row">
+                              <span className="field-label">Active Word Scale</span>
+                              <span className="slider-value">{Math.round((motionLayers.textAnimationConfig?.activeWordScale ?? 1.03) * 100)}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="1.0"
+                              max="1.15"
+                              step="0.01"
+                              value={motionLayers.textAnimationConfig?.activeWordScale ?? 1.03}
+                              onChange={(e) => onUpdateMotionLayers({ textAnimationConfig: { ...motionLayers.textAnimationConfig, activeWordScale: parseFloat(e.target.value) } })}
+                              className="range-slider"
+                            />
+                          </div>
+                        </>
+                      )}
+                      
                     </div>
                   )}
                 </div>
