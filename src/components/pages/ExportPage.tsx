@@ -373,6 +373,9 @@ export const ExportPage: React.FC<ExportPageProps> = ({
                     <option value="tracking-reveal">Tracking Reveal</option>
                     <option value="word-by-word">Word by Word</option>
                     <option value="mask-reveal">Mask Reveal</option>
+                    <option value="karaoke">Karaoke (Word Highlight)</option>
+                    <option value="kinetic">Kinetic (Energetic)</option>
+                    <option value="cinematic">Cinematic (Smooth Reveal)</option>
                   </select>
                   <p className="form-hint-sm">Animation adapts to each lyric's actual duration. No fixed timings.</p>
                 </div>

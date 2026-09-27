@@ -13,7 +13,8 @@ import {
   Play, 
   Sparkles,
   FileText,
-  RefreshCw
+  RefreshCw,
+  X
 } from 'lucide-react';
 import type { LyricLine, TrackMetadata, TimingSource, QualityValidationResult } from '../../types/lyrics';
 import { parseLrc } from '../../lib/lyrics/lrc-parser';
@@ -186,6 +187,16 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
               onChange={(e) => setSearchQuery(e.target.value)}
               className="search-input"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                className="search-clear-btn"
+                onClick={() => setSearchQuery('')}
+                title="Clear search"
+              >
+                <X size={12} />
+              </button>
+            )}
           </div>
         </div>
 

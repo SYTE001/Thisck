@@ -4,7 +4,8 @@ import type { TextAnimationPreset } from './text-animation';
 import { calculateBlockMotion } from '../motion/adaptive-motion';
 import { chunkAllLyricLines, getActiveVisualBlockAt } from '../layout/lyric-chunker';
 import { TextMeasurementCache, getNoiseCanvas } from './layer-cache';
-import { calculateTextAnimationState, applyTextAnimationTransform } from './text-animation';
+import { applyTextAnimationTransform } from './text-animation';
+import { getAnimationState } from './lyricsAnimation/animationEngine';
 
 export interface RenderOptions {
   width: number;
@@ -181,8 +182,17 @@ export function renderEditorialFrame(
   // PRIORITY 1: NO GHOSTING. Zero previous-lyric shadow, blur, opacity, or trail.
   if (activeBlock) {
     // PRD Section 22: Calculate dynamic animation state (cheap per frame)
-    const animState = calculateTextAnimationState(activeBlock, currentTime, textAnimationPreset);
     const motion = calculateBlockMotion(activeBlock, currentTime, 8);
+    const lyricsAnimState = getAnimationState(textAnimationPreset, activeBlock, currentTime, motion);
+    const lineState = lyricsAnimState.line;
+    const animState = {
+      opacity: lineState.opacity,
+      translateY: lineState.translateY,
+      scale: lineState.scale,
+      blur: lineState.blur,
+      letterSpacing: lineState.letterSpacing ?? null,
+      activeWordIndex: motion.activeWordIndex,
+    };
 
     if (animState.opacity > 0) {
       ctx.save();
@@ -361,13 +371,27 @@ export function renderEditorialFrame(
 
               lineWords.forEach((wordItem, wRelIdx) => {
                 const globalWordIdx = sliceStart + wRelIdx;
-                const isWordActive = globalWordIdx <= motion.activeWordIndex;
+                const wordState = lyricsAnimState.words[globalWordIdx];
 
                 ctx.save();
                 ctx.fillStyle = textColor;
-                ctx.globalAlpha = isWordActive ? animState.opacity : animState.opacity * 0.42;
+                let drawX = currentX;
+                let drawY = lineY;
+
+                if (wordState) {
+                  ctx.globalAlpha = Math.max(0, Math.min(1, wordState.opacity));
+                  const centerX = currentX + wordWidths[wRelIdx] / 2;
+                  const centerY = lineY;
+                  ctx.translate(centerX, centerY + wordState.translateY);
+                  ctx.scale(wordState.scale, wordState.scale);
+                  ctx.translate(-centerX, -centerY);
+                } else {
+                  const isWordActive = globalWordIdx <= motion.activeWordIndex;
+                  ctx.globalAlpha = isWordActive ? animState.opacity : animState.opacity * 0.42;
+                }
+
                 ctx.textAlign = 'left';
-                ctx.fillText(wordItem.text, currentX, lineY);
+                ctx.fillText(wordItem.text, drawX, drawY);
                 ctx.restore();
 
                 currentX += wordWidths[wRelIdx] + spaceWidth;

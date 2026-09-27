@@ -20,7 +20,10 @@ export type TextAnimationPreset =
   | 'tracking-reveal'
   | 'mask-reveal'
   | 'word-by-word'
-  | 'character-by-character';
+  | 'character-by-character'
+  | 'karaoke'
+  | 'kinetic'
+  | 'cinematic';
 
 /**
  * PRD Section 22: Static preparation data (cached per block).

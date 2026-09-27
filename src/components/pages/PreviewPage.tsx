@@ -186,7 +186,7 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
             <div className="info-card-block">
               <span className="info-label">Output Range (Trim/Cut)</span>
               
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+              <div className="trim-mode-grid">
                 <button 
                   className={`btn btn-xs ${resolvedOutputRange.mode === 'AUTO' ? 'btn-primary' : 'btn-secondary'}`}
                   onClick={() => onUpdateExportSettings({ outputRange: { ...exportSettings.outputRange, mode: 'AUTO' } })}
@@ -214,27 +214,27 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
               </div>
 
               {['MANUAL', 'CUSTOM'].includes(resolvedOutputRange.mode) && (
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
+                <div className="trim-inputs-row">
+                  <div className="trim-input-group">
                     <label>Start (s)</label>
                     <input 
                       type="number" 
                       min="0" 
                       step="0.1" 
-                      className="form-control"
+                      className="input-text"
                       value={resolvedOutputRange.startTime}
                       onChange={(e) => onUpdateExportSettings({ 
                         outputRange: { ...exportSettings.outputRange, mode: 'MANUAL', startTime: parseFloat(e.target.value) || 0, endTime: resolvedOutputRange.endTime } 
                       })}
                     />
                   </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
+                  <div className="trim-input-group">
                     <label>End (s)</label>
                     <input 
                       type="number" 
                       min="0" 
                       step="0.1" 
-                      className="form-control"
+                      className="input-text"
                       value={resolvedOutputRange.endTime}
                       onChange={(e) => onUpdateExportSettings({ 
                         outputRange: { ...exportSettings.outputRange, mode: 'MANUAL', startTime: resolvedOutputRange.startTime, endTime: parseFloat(e.target.value) || 1 } 
@@ -244,7 +244,7 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
                 </div>
               )}
 
-              <p className="text-dim" style={{ fontSize: '11px', marginTop: '4px' }}>
+              <p className="trim-range-badge">
                 Active Range: {formatSecondsToTimecode(resolvedOutputRange.startTime)} → {formatSecondsToTimecode(resolvedOutputRange.endTime)}
               </p>
             </div>

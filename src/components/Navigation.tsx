@@ -85,6 +85,7 @@ export const Navigation: React.FC<NavigationProps> = ({
         <div className="nav-divider" />
 
         <div className="nav-project-meta" title={`${trackTitle || 'Untitled'} - ${artistName || 'Artist'}`}>
+          <Music size={12} className="meta-icon" />
           <span className="meta-title">{trackTitle || 'Untitled Track'}</span>
           {artistName && <span className="meta-artist">/ {artistName}</span>}
         </div>
@@ -139,7 +140,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           <button
             type="button"
             onClick={onSaveProject}
-            className="nav-btn-ghost"
+            className="nav-btn-save"
             title="Save project JSON"
           >
             <Save size={14} />
