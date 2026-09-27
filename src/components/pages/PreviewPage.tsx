@@ -11,7 +11,6 @@ import {
   Minimize2, 
   Layers, 
   ArrowRight,
-  Disc,
   CheckCircle2
 } from 'lucide-react';
 import type { LyricLine, VisualLyricBlock, TimingSource } from '../../types/lyrics';
@@ -35,6 +34,7 @@ interface PreviewPageProps {
   onPlayPause: () => void;
   onRestart: () => void;
   onPrevLine: () => void;
+  onNextLine: () => void;
   onNavigateTab: (tab: ActiveTab) => void;
   resolvedOutputRange?: { startTime: number; endTime: number; mode: string };
   exportSettings?: any;
