@@ -1,4 +1,7 @@
 import type { LyricLine, TrackMetadata, TimingSource } from './lyrics';
+import type { TextAnimationPreset } from '../lib/render/text-animation';
+import type { RainOverlayConfig } from '../lib/layers/rain-overlay';
+import type { WatermarkConfig } from '../lib/layers/watermark';
 
 export type ActiveTab = 'projects' | 'lyrics' | 'timeline' | 'design' | 'preview' | 'export' | 'settings';
 
@@ -33,14 +36,36 @@ export interface StyleConfig {
   supportingLyricPolicy?: 'AUTO' | 'ALWAYS' | 'NEVER';
 }
 
+export type OutputRangeMode = 'AUTO' | 'MANUAL' | 'LYRICS' | 'AUDIO' | 'VIDEO' | 'CUSTOM';
+
+export interface OutputRange {
+  startTime: number;
+  endTime: number;
+  mode: OutputRangeMode;
+}
+
 export interface ExportSettings {
   width: number; // default 1080
   height: number; // default 1920
   aspectRatio: '9:16' | '1:1' | '16:9';
-  fps: 24 | 30 | 60;
+  fps: 24 | 30 | 60; // default 30 (PRD Section 6)
   bitrateKbps: number; // default 8000
   includeAudio: boolean; // true if project audio exists, false for silent MP4
   format: 'mp4' | 'webm';
+  outputRange?: OutputRange;
+}
+
+/**
+ * Motion layers configuration.
+ * PRD Section 19-25: extensible compositing layer system.
+ */
+export interface MotionLayersConfig {
+  /** Text animation preset applied to all lyric blocks */
+  textAnimation: TextAnimationPreset;
+  /** Rain overlay settings */
+  rain: RainOverlayConfig;
+  /** Watermark layer settings */
+  watermark: WatermarkConfig;
 }
 
 export interface AudioTrackState {
@@ -64,4 +89,5 @@ export interface ProjectState {
   exportSettings: ExportSettings;
   timingSource: TimingSource;
   maxHoldDurationSec: number; // default 4.5s for lines without explicit end time
+  motionLayers?: MotionLayersConfig; // optional; added in v2
 }

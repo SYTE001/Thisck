@@ -1,7 +1,10 @@
 import type { LyricLine, VisualLyricBlock } from '../../types/lyrics';
 import type { StyleConfig } from '../../types/project';
+import type { TextAnimationPreset } from './text-animation';
 import { calculateBlockMotion } from '../motion/adaptive-motion';
 import { chunkAllLyricLines, getActiveVisualBlockAt } from '../layout/lyric-chunker';
+import { TextMeasurementCache, getNoiseCanvas } from './layer-cache';
+import { calculateTextAnimationState, applyTextAnimationTransform } from './text-animation';
 
 export interface RenderOptions {
   width: number;
@@ -13,32 +16,32 @@ export interface RenderOptions {
   projectSeed?: number;
   trackTitle?: string;
   artistName?: string;
+  /** Text animation preset. Default 'slide-up' (matches original behaviour). */
+  textAnimationPreset?: TextAnimationPreset;
+  /**
+   * Whether this is a preview render.
+   * PRD Section 7: preview can be lower quality than export.
+   */
+  isPreview?: boolean;
 }
 
-// Procedural paper grain pattern generator for offline deterministic canvas rendering
-let cachedNoiseCanvas: HTMLCanvasElement | null = null;
-function getNoiseCanvas(): HTMLCanvasElement {
-  if (cachedNoiseCanvas && cachedNoiseCanvas.width === 512 && cachedNoiseCanvas.height === 512) {
-    return cachedNoiseCanvas;
+/**
+ * Module-level measurement cache.
+ * PRD Section 10: Cache text metrics; do not remeasure on every frame.
+ */
+const textMeasurementCache = new TextMeasurementCache();
+
+/**
+ * Invalidate the text measurement cache.
+ * Call when font or font-size changes.
+ * PRD Section 31: Granular cache invalidation.
+ */
+export function invalidateTextCache(fontFamily?: string): void {
+  if (fontFamily) {
+    textMeasurementCache.invalidateFont(fontFamily);
+  } else {
+    textMeasurementCache.invalidate();
   }
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 512;
-  const ctx = canvas.getContext('2d');
-  if (ctx) {
-    const imgData = ctx.createImageData(512, 512);
-    const data = imgData.data;
-    for (let i = 0; i < data.length; i += 4) {
-      const v = Math.random() * 255;
-      data[i] = v;
-      data[i + 1] = v;
-      data[i + 2] = v;
-      data[i + 3] = 40; // low alpha
-    }
-    ctx.putImageData(imgData, 0, 0);
-  }
-  cachedNoiseCanvas = canvas;
-  return canvas;
 }
 
 /**
@@ -76,7 +79,11 @@ function drawFourPointStar(
 }
 
 /**
- * Deterministic frame renderer for both 60fps preview and final export.
+ * Deterministic frame renderer for both preview and final export.
+ * PRD Section 8: Frame Renderer stage.
+ * PRD Section 10: Text measurement is cached.
+ * PRD Section 22: Static text geometry is separated from dynamic transform.
+ *
  * Strictly adheres to:
  * - NO PREVIOUS-LYRIC GHOSTING (Current lyric only).
  * - Visual chunking pipeline (3-5 words per block, editorial cut rhythm).
@@ -97,6 +104,8 @@ export function renderEditorialFrame(
     projectSeed = 42,
     trackTitle,
     artistName,
+    textAnimationPreset = 'slide-up',
+    isPreview: _isPreview = false,
   } = options;
 
   // Use provided pre-chunked blocks or generate deterministically
@@ -132,6 +141,7 @@ export function renderEditorialFrame(
   ctx.fillRect(0, 0, width, height);
 
   // 2. Paper Grain / Noise Texture
+  // PRD Section 9: Noise canvas is cached; not regenerated every frame.
   if (style.grainIntensity > 0) {
     const noise = getNoiseCanvas();
     ctx.save();
@@ -170,39 +180,52 @@ export function renderEditorialFrame(
   // 5. Draw CURRENT ACTIVE LYRIC ONLY
   // PRIORITY 1: NO GHOSTING. Zero previous-lyric shadow, blur, opacity, or trail.
   if (activeBlock) {
+    // PRD Section 22: Calculate dynamic animation state (cheap per frame)
+    const animState = calculateTextAnimationState(activeBlock, currentTime, textAnimationPreset);
     const motion = calculateBlockMotion(activeBlock, currentTime, 8);
 
-    if (motion.opacity > 0) {
+    if (animState.opacity > 0) {
       ctx.save();
-      ctx.globalAlpha = motion.opacity;
 
       const dynamicFontSize = Math.round(baseFontSize * activeBlock.fontSizeMultiplier);
-      const fontSpec = `600 ${dynamicFontSize}px "${style.fontFamily}", serif`;
+      const isSupporting = activeBlock.type === 'SUPPORTING';
+      let finalFontSize = isSupporting ? Math.floor(dynamicFontSize * 0.75) : dynamicFontSize;
+
+      // PRD Section 10: Use measurement cache for text layout
+      const fontSpec = `${isSupporting ? 'italic 400' : '600'} ${finalFontSize}px "${style.fontFamily}", serif`;
       ctx.font = fontSpec;
       ctx.fillStyle = textColor;
       ctx.textBaseline = 'middle';
 
       let lineList = activeBlock.lines;
-      let finalFontSize = dynamicFontSize;
-      const isSupporting = activeBlock.type === 'SUPPORTING';
 
-      if (isSupporting) {
-        finalFontSize = Math.floor(finalFontSize * 0.75);
-      }
-
-      // Base vertical position (centered) + subtle micro-motion translateY
-      const centerY = height * 0.48 + motion.translateY;
+      // Base vertical position (centered) + animation translateY
+      const centerY = height * 0.48 + animState.translateY;
       const lineHeightPx = finalFontSize * style.lineHeight;
 
-      // Apply subtle micro-scale (0.985 to 1.0)
-      ctx.translate(width / 2, centerY);
-      ctx.scale(motion.scale, motion.scale);
-      ctx.translate(-width / 2, -centerY);
+      // PRD Section 22: Apply dynamic transform (scale, translate)
+      // Separate from static geometry
+      applyTextAnimationTransform(ctx, animState, width / 2, centerY);
 
-      const getLongest = (lines: string[]) => lines.reduce((max, line) => {
-        ctx.font = `${isSupporting ? 'italic 400' : '600'} ${finalFontSize}px "${style.fontFamily}", serif`;
-        return Math.max(max, ctx.measureText(line).width);
-      }, 0);
+      // Apply blur if preset requires it
+      if (animState.blur > 0) {
+        ctx.filter = `blur(${animState.blur.toFixed(1)}px)`;
+      }
+
+      // PRD Section 10: Use cached text measurement for width checks
+      const measureLine = (text: string, font: string): number => {
+        const cached = textMeasurementCache.get(text, font);
+        if (cached) return cached.width;
+        const w = ctx.measureText(text).width;
+        textMeasurementCache.set(text, font, { width: w, height: finalFontSize });
+        return w;
+      };
+
+      const getLongest = (ls: string[]) =>
+        ls.reduce((max, line) => {
+          ctx.font = fontSpec;
+          return Math.max(max, measureLine(line, fontSpec));
+        }, 0);
 
       let longestWidth = getLongest(lineList);
       let fitScale = maxSafeTextWidth / longestWidth;
@@ -210,18 +233,19 @@ export function renderEditorialFrame(
       if (fitScale < 1.0) {
         const minSize = isSupporting ? 48 : 64;
         const idealSize = Math.floor(finalFontSize * fitScale);
-        
+
         if (idealSize < minSize) {
           finalFontSize = minSize;
           // Text is too wide at minSize, so we must rewrap dynamically
           const allWords = activeBlock.text.split(' ');
           lineList = [];
           let currentLine = '';
-          ctx.font = `${isSupporting ? 'italic 400' : '600'} ${finalFontSize}px "${style.fontFamily}", serif`;
-          
+          const wrapFont = `${isSupporting ? 'italic 400' : '600'} ${finalFontSize}px "${style.fontFamily}", serif`;
+          ctx.font = wrapFont;
+
           for (const word of allWords) {
             const testLine = currentLine ? `${currentLine} ${word}` : word;
-            if (ctx.measureText(testLine).width > maxSafeTextWidth) {
+            if (measureLine(testLine, wrapFont) > maxSafeTextWidth) {
               if (currentLine) {
                 lineList.push(currentLine);
                 currentLine = word;
@@ -234,8 +258,10 @@ export function renderEditorialFrame(
             }
           }
           if (currentLine) lineList.push(currentLine);
-          
+
           // Re-check just in case a single word exceeds max width
+          const wrapFontSpec = `${isSupporting ? 'italic 400' : '600'} ${finalFontSize}px "${style.fontFamily}", serif`;
+          ctx.font = wrapFontSpec;
           longestWidth = getLongest(lineList);
           fitScale = maxSafeTextWidth / longestWidth;
           if (fitScale < 1.0) {
@@ -246,9 +272,16 @@ export function renderEditorialFrame(
         }
       }
 
-      ctx.font = `${isSupporting ? 'italic 400' : '600'} ${finalFontSize}px "${style.fontFamily}", serif`;
+      const finalFontSpec = `${isSupporting ? 'italic 400' : '600'} ${finalFontSize}px "${style.fontFamily}", serif`;
+      ctx.font = finalFontSpec;
+
       if (isSupporting) {
-        ctx.globalAlpha = motion.opacity * 0.75;
+        ctx.globalAlpha = animState.opacity * 0.75;
+      }
+
+      // Apply letter spacing if text animation preset specifies it
+      if (animState.letterSpacing !== null && animState.letterSpacing > 0) {
+        ctx.letterSpacing = `${animState.letterSpacing}px`;
       }
 
       // Check if word-level progressive highlighting is available
@@ -318,7 +351,7 @@ export function renderEditorialFrame(
               const spaceWidth = ctx.measureText(' ').width;
 
               lineWords.forEach((w) => {
-                const wWidth = ctx.measureText(w.text).width;
+                const wWidth = measureLine(w.text, finalFontSpec);
                 wordWidths.push(wWidth);
                 totalLineWidth += wWidth + spaceWidth;
               });
@@ -332,7 +365,7 @@ export function renderEditorialFrame(
 
                 ctx.save();
                 ctx.fillStyle = textColor;
-                ctx.globalAlpha = isWordActive ? motion.opacity : motion.opacity * 0.42;
+                ctx.globalAlpha = isWordActive ? animState.opacity : animState.opacity * 0.42;
                 ctx.textAlign = 'left';
                 ctx.fillText(wordItem.text, currentX, lineY);
                 ctx.restore();
@@ -345,6 +378,9 @@ export function renderEditorialFrame(
         }
       }
 
+      // Reset letter spacing
+      ctx.letterSpacing = '0px';
+      ctx.filter = 'none';
       ctx.restore();
     }
   } else {

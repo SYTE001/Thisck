@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import type { LyricLine, TrackMetadata, TimingSource } from './types/lyrics';
-import type { StyleConfig, ExportSettings, AudioTrackState, ProjectState, ActiveTab } from './types/project';
+import type { StyleConfig, ExportSettings, AudioTrackState, ProjectState, ActiveTab, MotionLayersConfig } from './types/project';
+import { DEFAULT_RAIN_CONFIG } from './lib/layers/rain-overlay';
+import { DEFAULT_WATERMARK_CONFIG } from './lib/layers/watermark';
 import { Navigation } from './components/Navigation';
 import { ProjectsPage } from './components/pages/ProjectsPage';
 import { LyricsPage } from './components/pages/LyricsPage';
@@ -43,11 +45,12 @@ export function App() {
   });
 
   const [style, setStyle] = useState<StyleConfig>(DEEP_FOREST);
+  // PRD Section 6: 30 FPS is the default export preset.
   const [exportSettings, setExportSettings] = useState<ExportSettings>({
     width: 1080,
     height: 1920,
     aspectRatio: '9:16',
-    fps: 60,
+    fps: 30,
     bitrateKbps: 8000,
     includeAudio: false,
     format: 'mp4',
@@ -55,6 +58,13 @@ export function App() {
 
   // Visual Chunking Layer: LRC Timeline -> Visual Chunker -> Visual Lyric Blocks
   const visualBlocks = useMemo(() => chunkAllLyricLines(lines, 42), [lines]);
+
+  // PRD Section 19-25: Motion layer configuration (text animation, overlays, watermark)
+  const [motionLayers, setMotionLayers] = useState<MotionLayersConfig>({
+    textAnimation: 'slide-up',
+    rain: { ...DEFAULT_RAIN_CONFIG },
+    watermark: { ...DEFAULT_WATERMARK_CONFIG },
+  });
 
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -73,8 +83,35 @@ export function App() {
     peaks: [],
   });
 
-  // Calculate total project duration
-  const totalDuration = getTotalDuration(lines, audioState.duration);
+  // Calculate raw lyric timeline duration
+  const lyricTimelineDuration = getTotalDuration(lines, null); // pure lyric duration
+  
+  // Resolve output range per PRD Section 1-7
+  const resolvedOutputRange = useMemo(() => {
+    const range = exportSettings.outputRange;
+    const mode = range?.mode || 'AUTO';
+    const mediaDuration = audioState.duration || null;
+    
+    let start = 0;
+    let end = lyricTimelineDuration;
+    
+    if (mode === 'AUTO') {
+      end = mediaDuration || lyricTimelineDuration;
+    } else if (mode === 'AUDIO' && mediaDuration) {
+      end = mediaDuration;
+    } else if (mode === 'LYRICS') {
+      end = lyricTimelineDuration;
+    } else if (mode === 'MANUAL' || mode === 'CUSTOM') {
+      start = range?.startTime || 0;
+      end = range?.endTime || (mediaDuration || lyricTimelineDuration);
+    }
+    
+    return { startTime: start, endTime: end, mode };
+  }, [exportSettings.outputRange, audioState.duration, lyricTimelineDuration]);
+
+  // Max extent for scrubbing
+  const totalDuration = Math.max(lyricTimelineDuration, audioState.duration || 0);
+  const activeDuration = resolvedOutputRange.endTime;
 
   // Run Quality Validation
   const validation = validateProjectQuality(lines, audioState.duration, track.timingSource);
@@ -97,9 +134,9 @@ export function App() {
 
       setCurrentTime((prev) => {
         const nextTime = prev + deltaSec;
-        if (nextTime >= totalDuration) {
+        if (nextTime >= activeDuration) {
           setIsPlaying(false);
-          return 0;
+          return resolvedOutputRange.startTime;
         }
         return nextTime;
       });
@@ -112,7 +149,7 @@ export function App() {
     return () => {
       if (playheadReqRef.current) cancelAnimationFrame(playheadReqRef.current);
     };
-  }, [isPlaying, totalDuration]);
+  }, [isPlaying, activeDuration, resolvedOutputRange.startTime]);
 
   // Stepping Prev/Next Line in Preview
   const handlePrevLine = useCallback(() => {
@@ -164,14 +201,14 @@ export function App() {
         handleNextLine();
       } else if (e.key === 'Home' || e.key === '0') {
         e.preventDefault();
-        setCurrentTime(0);
+        setCurrentTime(resolvedOutputRange.startTime);
         setIsPlaying(false);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handlePrevLine, handleNextLine]);
+  }, [handlePrevLine, handleNextLine, resolvedOutputRange.startTime]);
 
   // Handlers for Lyrics Upload and Demonstrations
   const handleLyricsLoaded = (
@@ -445,6 +482,7 @@ export function App() {
             lines={lines}
             currentTime={currentTime}
             totalDuration={totalDuration}
+            resolvedOutputRange={resolvedOutputRange}
             isPlaying={isPlaying}
             audioPeaks={audioState.peaks}
             audioFileName={audioState.fileName}
@@ -452,7 +490,7 @@ export function App() {
             validation={validation}
             onPlayPause={() => setIsPlaying(!isPlaying)}
             onRestart={() => {
-              setCurrentTime(0);
+              setCurrentTime(resolvedOutputRange.startTime);
               setIsPlaying(false);
             }}
             onSelectLine={(id) => setSelectedLineId(id)}
@@ -486,7 +524,7 @@ export function App() {
             onTimeUpdate={(t) => setCurrentTime(t)}
             onPlayPause={() => setIsPlaying(!isPlaying)}
             onRestart={() => {
-              setCurrentTime(0);
+              setCurrentTime(resolvedOutputRange.startTime);
               setIsPlaying(false);
             }}
             onPrevLine={handlePrevLine}
@@ -501,15 +539,18 @@ export function App() {
             visualBlocks={visualBlocks}
             currentTime={currentTime}
             totalDuration={totalDuration}
+            resolvedOutputRange={resolvedOutputRange}
+            exportSettings={exportSettings}
             isPlaying={isPlaying}
             audioBlobUrl={audioState.audioBlobUrl}
             trackTitle={track.title}
             artistName={track.artist}
             timingSource={track.timingSource}
+            onUpdateExportSettings={(s) => setExportSettings((prev) => ({ ...prev, ...s }))}
             onTimeUpdate={(t) => setCurrentTime(t)}
             onPlayPause={() => setIsPlaying(!isPlaying)}
             onRestart={() => {
-              setCurrentTime(0);
+              setCurrentTime(resolvedOutputRange.startTime);
               setIsPlaying(false);
             }}
             onPrevLine={handlePrevLine}
@@ -529,7 +570,12 @@ export function App() {
             artistName={track.artist}
             validation={validation}
             totalDuration={totalDuration}
+            motionLayers={motionLayers}
+            resolvedOutputRange={resolvedOutputRange}
+            lyricTimelineDuration={lyricTimelineDuration}
+            mediaDuration={audioState.duration || null}
             onUpdateExportSettings={(s) => setExportSettings((prev) => ({ ...prev, ...s }))}
+            onUpdateMotionLayers={(ml) => setMotionLayers((prev) => ({ ...prev, ...ml }))}
           />
         )}
 

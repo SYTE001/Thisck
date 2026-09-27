@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { 
   Download, 
   Film, 
@@ -7,12 +7,19 @@ import {
   Volume2, 
   VolumeX, 
   RefreshCw,
-  XCircle
+  XCircle,
+  Layers,
+  Droplets,
+  Stamp,
+  Type,
 } from 'lucide-react';
-import type { ExportSettings, StyleConfig } from '../../types/project';
+import type { ExportSettings, StyleConfig, MotionLayersConfig } from '../../types/project';
 import type { LyricLine, VisualLyricBlock, QualityValidationResult } from '../../types/lyrics';
-import { exportVideo, type ExportProgress } from '../../lib/render/video-exporter';
+import { exportVideo, type ExportProgress, type RenderJobState } from '../../lib/render/video-exporter';
 import { formatSecondsToTimecode } from '../../lib/lyrics/lrc-parser';
+import type { TextAnimationPreset } from '../../lib/render/text-animation';
+import type { RainOverlayConfig } from '../../lib/layers/rain-overlay';
+import type { WatermarkConfig, WatermarkPosition, WatermarkAnimationPreset } from '../../lib/layers/watermark';
 
 interface ExportPageProps {
   lines: LyricLine[];
@@ -24,7 +31,12 @@ interface ExportPageProps {
   artistName: string;
   validation: QualityValidationResult;
   totalDuration: number;
+  motionLayers: MotionLayersConfig;
+  resolvedOutputRange?: { startTime: number; endTime: number; mode: string };
+  lyricTimelineDuration?: number;
+  mediaDuration?: number | null;
   onUpdateExportSettings: (settings: Partial<ExportSettings>) => void;
+  onUpdateMotionLayers: (layers: Partial<MotionLayersConfig>) => void;
 }
 
 export const ExportPage: React.FC<ExportPageProps> = ({
@@ -37,24 +49,77 @@ export const ExportPage: React.FC<ExportPageProps> = ({
   artistName,
   validation,
   totalDuration,
+  motionLayers,
+  resolvedOutputRange,
+  lyricTimelineDuration = 0,
+  mediaDuration = null,
   onUpdateExportSettings,
+  onUpdateMotionLayers,
 }) => {
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState<ExportProgress | null>(null);
+  const [jobState, setJobState] = useState<RenderJobState | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [isCancelled, setIsCancelled] = useState(false);
   const [completedVideoUrl, setCompletedVideoUrl] = useState<string | null>(null);
   const [completedFilename, setCompletedFilename] = useState<string>('');
+  const [activeMotionTab, setActiveMotionTab] = useState<'text' | 'overlay' | 'watermark'>('text');
 
   const hasAudio = !!audioBuffer && audioBuffer.duration > 0;
 
-  const handleStartExport = async () => {
-    if (!validation.readyToExport) return;
+  const blockingIssues = validation.issues.filter((i) => i.blocking);
+  const warnings = validation.issues.filter((i) => !i.blocking && i.type === 'warning');
+
+  // Check lyrics outside output range
+  const lyricsOutsideRange = lines.filter(l => l.startTime !== null && (l.startTime > (resolvedOutputRange?.endTime || totalDuration) || (l.endTime || l.startTime) < (resolvedOutputRange?.startTime || 0))).length;
+  
+  // Custom Validation checks for PRD 11
+  const outputDuration = (resolvedOutputRange?.endTime || totalDuration) - (resolvedOutputRange?.startTime || 0);
+  let localBlockingIssues = [...blockingIssues];
+  let localWarnings = [...warnings];
+
+  if (lyricsOutsideRange > 0) {
+    localWarnings.push({ 
+      id: 'local-warn-range',
+      type: 'warning', 
+      message: `${lyricsOutsideRange} lyric lines extend beyond the current output range.`,
+      remedy: 'Adjust trim range to include these lines, or ignore if intentional.',
+      blocking: false
+    });
+  }
+
+  if (resolvedOutputRange && mediaDuration && resolvedOutputRange.endTime > mediaDuration && hasAudio) {
+    localWarnings.push({ 
+      id: 'local-warn-audio',
+      type: 'warning', 
+      message: `Output end time (${formatSecondsToTimecode(resolvedOutputRange.endTime)}) exceeds actual audio duration (${formatSecondsToTimecode(mediaDuration)}). Audio track will have silence at the end.`,
+      remedy: 'Adjust end time to be within audio duration.',
+      blocking: false
+    });
+  }
+
+  if (resolvedOutputRange && resolvedOutputRange.startTime >= resolvedOutputRange.endTime) {
+    localBlockingIssues.push({ 
+      id: 'local-err-timing',
+      type: 'error', 
+      message: 'Invalid trim range: Start time must be less than end time.',
+      remedy: 'Fix trim range to be valid.',
+      blocking: true
+    });
+  }
+
+  const isExportReady = localBlockingIssues.length === 0;
+
+  const handleStartExport = useCallback(async () => {
+    if (!isExportReady) return;
 
     setIsExporting(true);
     setExportError(null);
     setIsCancelled(false);
     setCompletedVideoUrl(null);
+    setJobState(null);
+
+    let cancelFlag = false;
 
     try {
       const blob = await exportVideo({
@@ -65,8 +130,10 @@ export const ExportPage: React.FC<ExportPageProps> = ({
         audioBuffer: exportSettings.includeAudio ? audioBuffer : null,
         trackTitle,
         artistName,
+        motionLayers,
         onProgress: (p) => setProgress(p),
-        shouldCancel: () => isCancelled,
+        onJobStateChange: (s) => setJobState(s),
+        shouldCancel: () => cancelFlag || isCancelled,
       });
 
       const filename = `${(trackTitle || 'lyrics-video').toLowerCase().replace(/\s+/g, '-')}-motion.${exportSettings.format || 'mp4'}`;
@@ -88,15 +155,51 @@ export const ExportPage: React.FC<ExportPageProps> = ({
     } finally {
       setIsExporting(false);
       setProgress(null);
+      // Keep jobState for reference
     }
-  };
+
+    // Assign cancel flag via ref-like pattern (closure capture)
+    void cancelFlag;
+  }, [
+    isExportReady, lines, style, exportSettings, visualBlocks,
+    audioBuffer, trackTitle, artistName, motionLayers, isCancelled,
+  ]);
 
   const handleCancel = () => {
     setIsCancelled(true);
   };
 
-  const blockingIssues = validation.issues.filter((i) => i.blocking);
-  const warnings = validation.issues.filter((i) => !i.blocking && i.type === 'warning');
+
+  // Format estimated remaining time
+  const formatEta = (ms: number | null): string | null => {
+    if (ms === null) return null;
+    const s = Math.ceil(ms / 1000);
+    if (s < 60) return `~${s}s`;
+    const m = Math.floor(s / 60);
+    const remaining = s % 60;
+    return `~${m}m ${remaining}s`;
+  };
+
+  const currentPercentage = jobState?.percentage ?? progress?.percentage ?? 0;
+  const currentStatusText = jobState?.statusText ?? progress?.statusText ?? 'Rendering frames...';
+  const currentFrame = jobState?.currentFrame ?? progress?.currentFrame ?? 0;
+  const currentTotalFrames = jobState?.totalFrames ?? progress?.totalFrames ?? 0;
+  const eta = formatEta(jobState?.estimatedRemainingMs ?? null);
+
+  // ─── Motion layer update helpers ────────────────────────────────────────────
+
+  const updateRain = (update: Partial<RainOverlayConfig>) => {
+    onUpdateMotionLayers({ rain: { ...motionLayers.rain, ...update } });
+  };
+
+  const updateWatermark = (update: Partial<WatermarkConfig>) => {
+    onUpdateMotionLayers({ watermark: { ...motionLayers.watermark, ...update } });
+  };
+
+  const updateTextAnimation = (preset: TextAnimationPreset) => {
+    onUpdateMotionLayers({ textAnimation: preset });
+  };
+
 
   return (
     <div className="workspace-page export-page">
@@ -116,13 +219,13 @@ export const ExportPage: React.FC<ExportPageProps> = ({
           <section className="editorial-card">
             <h3 className="section-title">Pre-Flight Quality Audit</h3>
 
-            <div className={`status-banner ${validation.readyToExport ? 'banner-success' : 'banner-error'}`}>
-              {validation.readyToExport ? (
+            <div className={`status-banner ${isExportReady ? 'banner-success' : 'banner-error'}`}>
+              {isExportReady ? (
                 <>
                   <CheckCircle2 size={18} className="text-emerald" />
                   <div className="banner-text">
-                    <strong>Timeline Verified & Ready</strong>
-                    <span>All lyric lines contain valid timestamps and non-overlapping layout bounds.</span>
+                    <strong>Timeline Verified &amp; Ready</strong>
+                    <span>All lyric lines contain valid timestamps and fall within valid output bounds.</span>
                   </div>
                 </>
               ) : (
@@ -136,11 +239,11 @@ export const ExportPage: React.FC<ExportPageProps> = ({
               )}
             </div>
 
-            {blockingIssues.length > 0 && (
+            {localBlockingIssues.length > 0 && (
               <div className="issues-box blocking-issues">
-                <h4>Blocking Issues ({blockingIssues.length})</h4>
+                <h4>Blocking Issues ({localBlockingIssues.length})</h4>
                 <ul>
-                  {blockingIssues.map((issue, idx) => (
+                  {localBlockingIssues.map((issue, idx) => (
                     <li key={idx}>
                       <span className="issue-bullet">•</span>
                       <span>{issue.message}</span>
@@ -150,11 +253,11 @@ export const ExportPage: React.FC<ExportPageProps> = ({
               </div>
             )}
 
-            {warnings.length > 0 && (
+            {localWarnings.length > 0 && (
               <div className="issues-box warnings-issues">
-                <h4>Quality Advisories ({warnings.length})</h4>
+                <h4>Quality Advisories ({localWarnings.length})</h4>
                 <ul>
-                  {warnings.map((warn, idx) => (
+                  {localWarnings.map((warn, idx) => (
                     <li key={idx}>
                       <span className="warn-bullet">•</span>
                       <span>{warn.message}</span>
@@ -170,22 +273,296 @@ export const ExportPage: React.FC<ExportPageProps> = ({
                 <span className="spec-val">Vertical 9:16 Short-Form</span>
               </div>
               <div className="spec-row">
-                <span className="spec-name">Duration</span>
-                <span className="spec-val">{formatSecondsToTimecode(totalDuration)} ({totalDuration.toFixed(1)}s)</span>
+                <span className="spec-name">Output Range</span>
+                <span className="spec-val">
+                  {formatSecondsToTimecode(resolvedOutputRange?.startTime || 0)} → {formatSecondsToTimecode(resolvedOutputRange?.endTime || totalDuration)}
+                </span>
+              </div>
+              <div className="spec-row">
+                <span className="spec-name">Output Duration</span>
+                <span className="spec-val">
+                  {formatSecondsToTimecode(outputDuration)} ({outputDuration.toFixed(1)}s)
+                </span>
+              </div>
+              <div className="spec-row">
+                <span className="spec-name">Audio Duration</span>
+                <span className="spec-val">
+                  {mediaDuration ? `${formatSecondsToTimecode(mediaDuration)} (${mediaDuration.toFixed(1)}s)` : 'Silent / Muted Track'}
+                </span>
+              </div>
+              <div className="spec-row">
+                <span className="spec-name">Lyrics Timeline Duration</span>
+                <span className="spec-val">
+                  {formatSecondsToTimecode(lyricTimelineDuration)} ({lyricTimelineDuration.toFixed(1)}s)
+                </span>
               </div>
               <div className="spec-row">
                 <span className="spec-name">Phrase Count</span>
                 <span className="spec-val">{lines.length} lines ({visualBlocks?.length || lines.length} visual blocks)</span>
               </div>
               <div className="spec-row">
-                <span className="spec-name">Audio State</span>
-                <span className="spec-val">{hasAudio ? 'Master Audio Buffer Linked' : 'Silent / Muted Track'}</span>
-              </div>
-              <div className="spec-row">
                 <span className="spec-name">Active Theme</span>
                 <span className="spec-val">{style.presetName} ({style.fontFamily})</span>
               </div>
+              <div className="spec-row">
+                <span className="spec-name">Text Animation</span>
+                <span className="spec-val">{motionLayers.textAnimation}</span>
+              </div>
+              <div className="spec-row">
+                <span className="spec-name">Rain Overlay</span>
+                <span className="spec-val">{motionLayers.rain.enabled ? 'Enabled' : 'Off'}</span>
+              </div>
+              <div className="spec-row">
+                <span className="spec-name">Watermark</span>
+                <span className="spec-val">{motionLayers.watermark.enabled ? 'Enabled' : 'Off'}</span>
+              </div>
             </div>
+          </section>
+
+          {/* Motion Layers Panel — PRD Section 34 */}
+          <section className="editorial-card motion-layers-card">
+            <div className="motion-layers-header">
+              <Layers size={16} />
+              <h3 className="section-title">Motion Layers</h3>
+            </div>
+
+            {/* Tab Switcher */}
+            <div className="motion-tab-row">
+              <button
+                type="button"
+                className={`motion-tab ${activeMotionTab === 'text' ? 'is-active' : ''}`}
+                onClick={() => setActiveMotionTab('text')}
+              >
+                <Type size={12} />
+                <span>Text</span>
+              </button>
+              <button
+                type="button"
+                className={`motion-tab ${activeMotionTab === 'overlay' ? 'is-active' : ''}`}
+                onClick={() => setActiveMotionTab('overlay')}
+              >
+                <Droplets size={12} />
+                <span>Overlay</span>
+              </button>
+              <button
+                type="button"
+                className={`motion-tab ${activeMotionTab === 'watermark' ? 'is-active' : ''}`}
+                onClick={() => setActiveMotionTab('watermark')}
+              >
+                <Stamp size={12} />
+                <span>Watermark</span>
+              </button>
+            </div>
+
+            {/* Text Animation Tab */}
+            {activeMotionTab === 'text' && (
+              <div className="motion-panel">
+                <div className="form-group">
+                  <label className="form-label-sm">Animation Preset</label>
+                  <select
+                    className="select-field"
+                    value={motionLayers.textAnimation}
+                    onChange={(e) => updateTextAnimation(e.target.value as TextAnimationPreset)}
+                    disabled={isExporting}
+                  >
+                    <option value="slide-up">Slide Up (Default)</option>
+                    <option value="slide-down">Slide Down</option>
+                    <option value="fade">Fade Only</option>
+                    <option value="scale-in">Scale In</option>
+                    <option value="blur-to-sharp">Blur to Sharp</option>
+                    <option value="tracking-reveal">Tracking Reveal</option>
+                    <option value="word-by-word">Word by Word</option>
+                    <option value="mask-reveal">Mask Reveal</option>
+                  </select>
+                  <p className="form-hint-sm">Animation adapts to each lyric's actual duration. No fixed timings.</p>
+                </div>
+              </div>
+            )}
+
+            {/* Rain Overlay Tab */}
+            {activeMotionTab === 'overlay' && (
+              <div className="motion-panel">
+                <div className="toggle-row">
+                  <label className="toggle-label">Rain Overlay</label>
+                  <button
+                    type="button"
+                    className={`toggle-pill ${motionLayers.rain.enabled ? 'is-on' : ''}`}
+                    onClick={() => updateRain({ enabled: !motionLayers.rain.enabled })}
+                    disabled={isExporting}
+                  >
+                    <span className="toggle-knob" />
+                  </button>
+                </div>
+
+                {motionLayers.rain.enabled && (
+                  <>
+                    <div className="form-group">
+                      <label className="form-label-sm">Density ({motionLayers.rain.density})</label>
+                      <input
+                        type="range"
+                        min={30}
+                        max={300}
+                        value={motionLayers.rain.density}
+                        onChange={(e) => updateRain({ density: Number(e.target.value) })}
+                        disabled={isExporting}
+                        className="range-input"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label-sm">Speed ({motionLayers.rain.speed.toFixed(1)}x)</label>
+                      <input
+                        type="range"
+                        min={20}
+                        max={200}
+                        value={Math.round(motionLayers.rain.speed * 100)}
+                        onChange={(e) => updateRain({ speed: Number(e.target.value) / 100 })}
+                        disabled={isExporting}
+                        className="range-input"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label-sm">Opacity ({Math.round(motionLayers.rain.opacity * 100)}%)</label>
+                      <input
+                        type="range"
+                        min={5}
+                        max={80}
+                        value={Math.round(motionLayers.rain.opacity * 100)}
+                        onChange={(e) => updateRain({ opacity: Number(e.target.value) / 100 })}
+                        disabled={isExporting}
+                        className="range-input"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label-sm">Direction ({motionLayers.rain.direction}°)</label>
+                      <input
+                        type="range"
+                        min={-30}
+                        max={30}
+                        value={motionLayers.rain.direction}
+                        onChange={(e) => updateRain({ direction: Number(e.target.value) })}
+                        disabled={isExporting}
+                        className="range-input"
+                      />
+                    </div>
+                    <div className="form-row-inline">
+                      <label className="form-label-sm">Start</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.1}
+                        value={motionLayers.rain.startTime}
+                        onChange={(e) => updateRain({ startTime: Math.max(0, Number(e.target.value)) })}
+                        disabled={isExporting}
+                        className="number-input"
+                      />
+                      <label className="form-label-sm">End (0 = full)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.1}
+                        value={isFinite(motionLayers.rain.endTime) ? motionLayers.rain.endTime : 0}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          updateRain({ endTime: v <= 0 ? Infinity : v });
+                        }}
+                        disabled={isExporting}
+                        className="number-input"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Watermark Tab */}
+            {activeMotionTab === 'watermark' && (
+              <div className="motion-panel">
+                <div className="toggle-row">
+                  <label className="toggle-label">Watermark</label>
+                  <button
+                    type="button"
+                    className={`toggle-pill ${motionLayers.watermark.enabled ? 'is-on' : ''}`}
+                    onClick={() => updateWatermark({ enabled: !motionLayers.watermark.enabled })}
+                    disabled={isExporting}
+                  >
+                    <span className="toggle-knob" />
+                  </button>
+                </div>
+
+                {motionLayers.watermark.enabled && (
+                  <>
+                    <div className="form-group">
+                      <label className="form-label-sm">Image URL or Data URL</label>
+                      <input
+                        type="url"
+                        placeholder="https://… or data:image/…"
+                        value={motionLayers.watermark.imageUrl ?? ''}
+                        onChange={(e) => updateWatermark({ imageUrl: e.target.value || null })}
+                        disabled={isExporting}
+                        className="text-input"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label-sm">Position</label>
+                      <select
+                        className="select-field"
+                        value={motionLayers.watermark.position}
+                        onChange={(e) => updateWatermark({ position: e.target.value as WatermarkPosition })}
+                        disabled={isExporting}
+                      >
+                        <option value="top-left">Top Left</option>
+                        <option value="top-center">Top Center</option>
+                        <option value="top-right">Top Right</option>
+                        <option value="bottom-left">Bottom Left</option>
+                        <option value="bottom-center">Bottom Center</option>
+                        <option value="bottom-right">Bottom Right</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label-sm">Size ({Math.round(motionLayers.watermark.sizeFraction * 100)}% width)</label>
+                      <input
+                        type="range"
+                        min={3}
+                        max={25}
+                        value={Math.round(motionLayers.watermark.sizeFraction * 100)}
+                        onChange={(e) => updateWatermark({ sizeFraction: Number(e.target.value) / 100 })}
+                        disabled={isExporting}
+                        className="range-input"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label-sm">Opacity ({Math.round(motionLayers.watermark.opacity * 100)}%)</label>
+                      <input
+                        type="range"
+                        min={10}
+                        max={100}
+                        value={Math.round(motionLayers.watermark.opacity * 100)}
+                        onChange={(e) => updateWatermark({ opacity: Number(e.target.value) / 100 })}
+                        disabled={isExporting}
+                        className="range-input"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label-sm">Animation</label>
+                      <select
+                        className="select-field"
+                        value={motionLayers.watermark.animationPreset}
+                        onChange={(e) => updateWatermark({ animationPreset: e.target.value as WatermarkAnimationPreset })}
+                        disabled={isExporting}
+                      >
+                        <option value="none">None</option>
+                        <option value="fade-in">Fade In</option>
+                        <option value="fade-out">Fade Out</option>
+                        <option value="fade-in-out">Fade In &amp; Out</option>
+                        <option value="subtle-scale">Subtle Scale</option>
+                        <option value="subtle-slide">Subtle Slide</option>
+                        <option value="pulse">Pulse</option>
+                      </select>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </section>
         </div>
 
@@ -194,24 +571,8 @@ export const ExportPage: React.FC<ExportPageProps> = ({
           <section className="editorial-card">
             <h3 className="section-title">Delivery Settings</h3>
 
-            {/* Presets Grid */}
+            {/* Presets Grid — PRD Section 6: 30 FPS Standard is default */}
             <div className="export-preset-selection">
-              <button
-                type="button"
-                className={`export-preset-chip ${exportSettings.fps === 60 && exportSettings.height === 1920 ? 'is-active' : ''}`}
-                onClick={() =>
-                  onUpdateExportSettings({
-                    width: 1080,
-                    height: 1920,
-                    fps: 60,
-                    bitrateKbps: 8000,
-                  })
-                }
-              >
-                <span className="chip-title">1080p 60 FPS</span>
-                <span className="chip-sub">High Quality Editorial</span>
-              </button>
-
               <button
                 type="button"
                 className={`export-preset-chip ${exportSettings.fps === 30 && exportSettings.height === 1920 ? 'is-active' : ''}`}
@@ -225,7 +586,25 @@ export const ExportPage: React.FC<ExportPageProps> = ({
                 }
               >
                 <span className="chip-title">1080p 30 FPS</span>
-                <span className="chip-sub">Standard Social Web</span>
+                {/* PRD Section 6: "30 FPS — Standard" */}
+                <span className="chip-sub">Standard · Recommended</span>
+              </button>
+
+              <button
+                type="button"
+                className={`export-preset-chip ${exportSettings.fps === 60 && exportSettings.height === 1920 ? 'is-active' : ''}`}
+                onClick={() =>
+                  onUpdateExportSettings({
+                    width: 1080,
+                    height: 1920,
+                    fps: 60,
+                    bitrateKbps: 8000,
+                  })
+                }
+              >
+                <span className="chip-title">1080p 60 FPS</span>
+                {/* PRD Section 6: "60 FPS — Smooth Motion" */}
+                <span className="chip-sub">Smooth Motion</span>
               </button>
 
               <button
@@ -270,9 +649,10 @@ export const ExportPage: React.FC<ExportPageProps> = ({
                     value={exportSettings.fps}
                     onChange={(e) => onUpdateExportSettings({ fps: Number(e.target.value) as any })}
                   >
-                    <option value="60">60 FPS (Ultra Smooth Motion)</option>
-                    <option value="30">30 FPS (Standard)</option>
-                    <option value="24">24 FPS (Cinematic)</option>
+                    {/* PRD Section 6: Show labels as specified */}
+                    <option value="30">30 FPS — Standard</option>
+                    <option value="60">60 FPS — Smooth Motion</option>
+                    <option value="24">24 FPS — Cinematic</option>
                   </select>
                 </div>
               </div>
@@ -329,28 +709,37 @@ export const ExportPage: React.FC<ExportPageProps> = ({
             <div className="export-action-container">
               {isExporting ? (
                 <div className="render-progress-card">
+                  {/* PRD Section 16: Distinguish render / encode / mux phases */}
+                  <div className="progress-phase-label">
+                    {jobState?.status === 'PREPARING' && 'Preparing project...'}
+                    {jobState?.status === 'RENDERING' && 'Rendering frames...'}
+                    {jobState?.status === 'ENCODING' && 'Encoding video...'}
+                    {jobState?.status === 'MUXING' && 'Muxing audio...'}
+                    {!jobState && 'Initializing...'}
+                  </div>
+
                   <div className="progress-info-row">
                     <span className="progress-title">
                       <RefreshCw size={14} className="spin-animation" />
-                      <span>Rendering Frame By Frame...</span>
+                      <span>{currentStatusText}</span>
                     </span>
                     <span className="progress-percent">
-                      {progress ? Math.round(progress.percentage) : 0}%
+                      {Math.round(currentPercentage)}%
                     </span>
                   </div>
 
                   <div className="render-progress-bar">
                     <div
                       className="progress-fill"
-                      style={{ transform: `scaleX(${progress ? progress.percentage / 100 : 0})` }}
+                      style={{ transform: `scaleX(${currentPercentage / 100})` }}
                     />
                   </div>
 
                   <div className="progress-stats-row">
                     <span>
-                      Frame {progress?.currentFrame || 0} of {progress?.totalFrames || 0}
+                      Frame {currentFrame} of {currentTotalFrames}
                     </span>
-                    <span>{progress?.statusText || 'Rendering frames...'}</span>
+                    {eta && <span>ETA: {eta}</span>}
                   </div>
 
                   <button

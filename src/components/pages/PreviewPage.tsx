@@ -35,8 +35,10 @@ interface PreviewPageProps {
   onPlayPause: () => void;
   onRestart: () => void;
   onPrevLine: () => void;
-  onNextLine: () => void;
   onNavigateTab: (tab: ActiveTab) => void;
+  resolvedOutputRange?: { startTime: number; endTime: number; mode: string };
+  exportSettings?: any;
+  onUpdateExportSettings?: (settings: any) => void;
 }
 
 export const PreviewPage: React.FC<PreviewPageProps> = ({
@@ -56,6 +58,9 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
   onPrevLine,
   onNextLine,
   onNavigateTab,
+  resolvedOutputRange,
+  exportSettings,
+  onUpdateExportSettings,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -171,11 +176,79 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
                 <span>Exact Canvas-to-Export Parity</span>
               </div>
               <div className="engine-status-item">
-                <Disc size={13} className="text-sand" />
                 <span>Source: {timingSource}</span>
               </div>
             </div>
           </div>
+
+          {/* TRIM / CUT CONTROLS (PRD Section 5) */}
+          {exportSettings && onUpdateExportSettings && resolvedOutputRange && (
+            <div className="info-card-block">
+              <span className="info-label">Output Range (Trim/Cut)</span>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                <button 
+                  className={`btn btn-xs ${resolvedOutputRange.mode === 'AUTO' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => onUpdateExportSettings({ outputRange: { ...exportSettings.outputRange, mode: 'AUTO' } })}
+                >
+                  Auto
+                </button>
+                <button 
+                  className={`btn btn-xs ${resolvedOutputRange.mode === 'MANUAL' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => onUpdateExportSettings({ outputRange: { ...exportSettings.outputRange, mode: 'MANUAL', startTime: resolvedOutputRange.startTime, endTime: resolvedOutputRange.endTime } })}
+                >
+                  Custom Range
+                </button>
+                <button 
+                  className={`btn btn-xs ${resolvedOutputRange.mode === 'AUDIO' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => onUpdateExportSettings({ outputRange: { ...exportSettings.outputRange, mode: 'AUDIO' } })}
+                >
+                  Audio Duration
+                </button>
+                <button 
+                  className={`btn btn-xs ${resolvedOutputRange.mode === 'LYRICS' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => onUpdateExportSettings({ outputRange: { ...exportSettings.outputRange, mode: 'LYRICS' } })}
+                >
+                  Lyrics Duration
+                </button>
+              </div>
+
+              {['MANUAL', 'CUSTOM'].includes(resolvedOutputRange.mode) && (
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label>Start (s)</label>
+                    <input 
+                      type="number" 
+                      min="0" 
+                      step="0.1" 
+                      className="form-control"
+                      value={resolvedOutputRange.startTime}
+                      onChange={(e) => onUpdateExportSettings({ 
+                        outputRange: { ...exportSettings.outputRange, mode: 'MANUAL', startTime: parseFloat(e.target.value) || 0, endTime: resolvedOutputRange.endTime } 
+                      })}
+                    />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label>End (s)</label>
+                    <input 
+                      type="number" 
+                      min="0" 
+                      step="0.1" 
+                      className="form-control"
+                      value={resolvedOutputRange.endTime}
+                      onChange={(e) => onUpdateExportSettings({ 
+                        outputRange: { ...exportSettings.outputRange, mode: 'MANUAL', startTime: resolvedOutputRange.startTime, endTime: parseFloat(e.target.value) || 1 } 
+                      })}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <p className="text-dim" style={{ fontSize: '11px', marginTop: '4px' }}>
+                Active Range: {formatSecondsToTimecode(resolvedOutputRange.startTime)} → {formatSecondsToTimecode(resolvedOutputRange.endTime)}
+              </p>
+            </div>
+          )}
 
           <div className="info-card-block cta-block">
             <button
@@ -203,8 +276,8 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
         <div className="transport-scrub-row">
           <input
             type="range"
-            min="0"
-            max={totalDuration || 1}
+            min={resolvedOutputRange?.startTime || 0}
+            max={resolvedOutputRange?.endTime || (totalDuration || 1)}
             step="0.02"
             value={currentTime}
             onChange={(e) => onTimeUpdate(parseFloat(e.target.value))}
@@ -250,7 +323,7 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
             <div className="cinema-timecode">
               <span className="current">{formatSecondsToTimecode(currentTime)}</span>
               <span className="sep">/</span>
-              <span className="total">{formatSecondsToTimecode(totalDuration)}</span>
+              <span className="total">{formatSecondsToTimecode(resolvedOutputRange?.endTime || totalDuration)}</span>
             </div>
           </div>
 

@@ -20,6 +20,7 @@ interface TimelinePageProps {
   lines: LyricLine[];
   currentTime: number;
   totalDuration: number;
+  resolvedOutputRange?: { startTime: number; endTime: number; mode: string };
   isPlaying: boolean;
   audioPeaks?: number[];
   audioFileName?: string | null;
@@ -40,6 +41,7 @@ export const TimelinePage: React.FC<TimelinePageProps> = ({
   lines,
   currentTime,
   totalDuration,
+  resolvedOutputRange,
   isPlaying,
   audioPeaks,
   audioFileName,
@@ -162,7 +164,7 @@ export const TimelinePage: React.FC<TimelinePageProps> = ({
           <div className="timecode-display">
             <span className="current-time">{formatSecondsToTimecode(currentTime)}</span>
             <span className="time-separator">/</span>
-            <span className="total-time">{formatSecondsToTimecode(totalDuration)}</span>
+            <span className="total-time">{formatSecondsToTimecode(resolvedOutputRange?.endTime || totalDuration)}</span>
           </div>
         </div>
 
@@ -245,6 +247,29 @@ export const TimelinePage: React.FC<TimelinePageProps> = ({
       <div className="timeline-track-workspace">
         <div className="track-scroll-container" ref={trackContainerRef} onClick={handleTrackClick}>
           <div className="track-canvas-area" style={{ width: `${totalTrackWidth}px` }}>
+            {/* PRD Section 6: visually mute outside output range */}
+            {resolvedOutputRange && (
+              <>
+                <div style={{
+                  position: 'absolute',
+                  top: 0, bottom: 0, left: 0,
+                  width: `${resolvedOutputRange.startTime * pxPerSec}px`,
+                  backgroundColor: 'rgba(0,0,0,0.6)',
+                  pointerEvents: 'none',
+                  zIndex: 20
+                }} />
+                <div style={{
+                  position: 'absolute',
+                  top: 0, bottom: 0,
+                  left: `${resolvedOutputRange.endTime * pxPerSec}px`,
+                  right: 0,
+                  backgroundColor: 'rgba(0,0,0,0.6)',
+                  pointerEvents: 'none',
+                  zIndex: 20
+                }} />
+              </>
+            )}
+
             {/* Time Ruler */}
             <div className="timeline-ruler">
               {markers.map((sec) => (
