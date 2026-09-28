@@ -13,6 +13,10 @@ import type { StyleConfig, MotionLayersConfig } from '../types/project';
 import { renderEditorialFrame } from '../lib/render/canvas-renderer';
 import { formatSecondsToTimecode } from '../lib/lyrics/lrc-parser';
 import { getActiveVisualBlockAt } from '../lib/layout/lyric-chunker';
+import { LayerCompositor } from '../lib/render/layer-compositor';
+import { RainOverlayLayer } from '../lib/layers/rain-overlay';
+import { WatermarkLayer } from '../lib/layers/watermark';
+import { VideoTransitionsLayer } from '../lib/layers/video-transitions';
 
 interface PreviewPlayerProps {
   lines: LyricLine[];
@@ -76,6 +80,35 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
     }
   }, [currentTime]);
 
+  const [compositor] = useState(() => new LayerCompositor({ width: 1080, height: 1920, projectSeed: 42 }));
+  const [compositorReady, setCompositorReady] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const prepareCompositor = async () => {
+      // Clear old layers
+      compositor.dispose();
+      
+      if (motionLayers?.rain?.enabled) {
+        compositor.addLayer(new RainOverlayLayer(motionLayers.rain));
+      }
+      if (motionLayers?.watermark?.enabled) {
+        compositor.addLayer(new WatermarkLayer(motionLayers.watermark));
+      }
+      if (motionLayers?.videoTransitions?.enabled) {
+        compositor.addLayer(new VideoTransitionsLayer(motionLayers.videoTransitions));
+      }
+
+      await compositor.prepare(true);
+      if (active) setCompositorReady(true);
+    };
+    
+    setCompositorReady(false);
+    prepareCompositor();
+    
+    return () => { active = false; };
+  }, [motionLayers, compositor]);
+
   // Render canvas frame on currentTime or style change
   const drawCurrentFrame = useCallback(() => {
     const canvas = canvasRef.current;
@@ -92,10 +125,18 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
       visualBlocks,
       trackTitle,
       artistName,
+      lyricsType: motionLayers?.lyricsType,
+      lyricsEffect: motionLayers?.lyricsEffect,
+      lyricsEffectConfig: motionLayers?.lyricsEffectConfig,
       textAnimationPreset: motionLayers?.textAnimation,
       textAnimationConfig: motionLayers?.textAnimationConfig,
+      isPreview: true,
     });
-  }, [currentTime, lines, style, visualBlocks, trackTitle, artistName, motionLayers]);
+
+    if (compositorReady && compositor.getLayers().length > 0) {
+      compositor.renderFrame(ctx, currentTime, totalDuration, true);
+    }
+  }, [currentTime, lines, style, visualBlocks, trackTitle, artistName, motionLayers, compositor, compositorReady, totalDuration]);
 
   useEffect(() => {
     drawCurrentFrame();

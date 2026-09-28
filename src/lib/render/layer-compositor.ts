@@ -99,6 +99,7 @@ export class LayerCompositor {
   renderFrame(
     ctx: CanvasRenderingContext2D,
     currentTime: number,
+    totalDuration: number,
     isPreview = false
   ): void {
     const sorted = sortLayers(this.layers);
@@ -107,6 +108,7 @@ export class LayerCompositor {
       width: this.config.width,
       height: this.config.height,
       currentTime,
+      totalDuration,
       isPreview,
     };
 

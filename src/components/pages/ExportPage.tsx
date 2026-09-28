@@ -17,9 +17,10 @@ import type { ExportSettings, StyleConfig, MotionLayersConfig } from '../../type
 import type { LyricLine, VisualLyricBlock, QualityValidationResult } from '../../types/lyrics';
 import { exportVideo, type ExportProgress, type RenderJobState } from '../../lib/render/video-exporter';
 import { formatSecondsToTimecode } from '../../lib/lyrics/lrc-parser';
-import type { TextAnimationPreset } from '../../lib/render/text-animation';
+import type { LyricsType, LyricsEffect } from '../../lib/render/lyricsAnimation/types';
 import type { RainOverlayConfig } from '../../lib/layers/rain-overlay';
-import type { WatermarkConfig, WatermarkPosition, WatermarkAnimationPreset } from '../../lib/layers/watermark';
+import type { WatermarkConfig, WatermarkPosition, WatermarkAnimationPreset, WatermarkTextStyle } from '../../lib/layers/watermark';
+import type { VideoTransitionsConfig } from '../../lib/layers/video-transitions';
 
 interface ExportPageProps {
   lines: LyricLine[];
@@ -63,7 +64,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
   const [isCancelled, setIsCancelled] = useState(false);
   const [completedVideoUrl, setCompletedVideoUrl] = useState<string | null>(null);
   const [completedFilename, setCompletedFilename] = useState<string>('');
-  const [activeMotionTab, setActiveMotionTab] = useState<'text' | 'overlay' | 'watermark'>('text');
+  const [activeMotionTab, setActiveMotionTab] = useState<'text' | 'overlay' | 'watermark' | 'transitions'>('text');
 
   const hasAudio = !!audioBuffer && audioBuffer.duration > 0;
 
@@ -196,10 +197,19 @@ export const ExportPage: React.FC<ExportPageProps> = ({
     onUpdateMotionLayers({ watermark: { ...motionLayers.watermark, ...update } });
   };
 
-  const updateTextAnimation = (preset: TextAnimationPreset) => {
-    onUpdateMotionLayers({ textAnimation: preset });
+
+  const updateLyricsType = (type: LyricsType) => {
+    onUpdateMotionLayers({ lyricsType: type, textAnimation: type as any });
   };
 
+  const updateLyricsEffect = (effect: LyricsEffect) => {
+    onUpdateMotionLayers({ lyricsEffect: effect });
+  };
+
+
+  const updateTransitions = (update: Partial<VideoTransitionsConfig>) => {
+    onUpdateMotionLayers({ videoTransitions: { ...motionLayers.videoTransitions, id: 'video-transitions', ...update } as VideoTransitionsConfig });
+  };
 
   return (
     <div className="workspace-page export-page">
@@ -305,8 +315,12 @@ export const ExportPage: React.FC<ExportPageProps> = ({
                 <span className="spec-val">{style.presetName} ({style.fontFamily})</span>
               </div>
               <div className="spec-row">
-                <span className="spec-name">Text Animation</span>
-                <span className="spec-val">{motionLayers.textAnimation}</span>
+                <span className="spec-name">Lyrics Type</span>
+                <span className="spec-val">{motionLayers.lyricsType || 'word-by-word'}</span>
+              </div>
+              <div className="spec-row">
+                <span className="spec-name">Lyrics Effect</span>
+                <span className="spec-val">{motionLayers.lyricsEffect || 'none'}</span>
               </div>
               <div className="spec-row">
                 <span className="spec-name">Rain Overlay</span>
@@ -352,32 +366,63 @@ export const ExportPage: React.FC<ExportPageProps> = ({
                 <Stamp size={12} />
                 <span>Watermark</span>
               </button>
+              <button
+                type="button"
+                className={`motion-tab ${activeMotionTab === 'transitions' ? 'is-active' : ''}`}
+                onClick={() => setActiveMotionTab('transitions')}
+              >
+                <Film size={12} />
+                <span>Transitions</span>
+              </button>
             </div>
 
             {/* Text Animation Tab */}
             {activeMotionTab === 'text' && (
               <div className="motion-panel">
                 <div className="form-group">
-                  <label className="form-label-sm">Animation Preset</label>
+                  <label className="form-label-sm">1. Lyrics Type (Content &amp; Display)</label>
                   <select
                     className="select-field"
-                    value={motionLayers.textAnimation}
-                    onChange={(e) => updateTextAnimation(e.target.value as TextAnimationPreset)}
+                    value={motionLayers.lyricsType || 'word-by-word'}
+                    onChange={(e) => updateLyricsType(e.target.value as LyricsType)}
                     disabled={isExporting}
                   >
-                    <option value="slide-up">Slide Up (Default)</option>
-                    <option value="slide-down">Slide Down</option>
-                    <option value="fade">Fade Only</option>
-                    <option value="scale-in">Scale In</option>
-                    <option value="blur-to-sharp">Blur to Sharp</option>
-                    <option value="tracking-reveal">Tracking Reveal</option>
-                    <option value="word-by-word">Word by Word</option>
-                    <option value="mask-reveal">Mask Reveal</option>
-                    <option value="karaoke">Karaoke (Word Highlight)</option>
-                    <option value="kinetic">Kinetic (Energetic)</option>
-                    <option value="cinematic">Cinematic (Smooth Reveal)</option>
+                    <option value="word-by-word">Word by Word (Sequential Reveal, Fixed Layout)</option>
+                    <option value="single-line">Single Line (Centered per block)</option>
+                    <option value="multi-line">Multi Line (2 Balanced Lines)</option>
+                    <option value="paragraph">Paragraph (Stacked 3+ Lines)</option>
+                    <option value="character">Character (Character by Character)</option>
+                    <option value="highlighted-word">Highlighted Word (All visible, active highlighted)</option>
+                    <option value="karaoke">Karaoke (Dim to sung transition)</option>
+                    <option value="progressive">Progressive Reveal (Smooth left-to-right wipe)</option>
                   </select>
-                  <p className="form-hint-sm">Animation adapts to each lyric's actual duration. No fixed timings.</p>
+                  <p className="form-hint-sm">Defines content layout and reveal. Typography remains solid and fixed.</p>
+                </div>
+
+                <div className="form-group" style={{ marginTop: '12px' }}>
+                  <label className="form-label-sm">2. Lyrics Effect (Visual Motion Layer)</label>
+                  <select
+                    className="select-field"
+                    value={motionLayers.lyricsEffect || 'none'}
+                    onChange={(e) => updateLyricsEffect(e.target.value as LyricsEffect)}
+                    disabled={isExporting}
+                  >
+                    <option value="none">None (Completely Static &amp; Solid)</option>
+                    <option value="fade">Fade In</option>
+                    <option value="fade-in-out">Fade In + Out</option>
+                    <option value="wave">Wave Ripple</option>
+                    <option value="kinetic">Kinetic Micro-Slide</option>
+                    <option value="scale">Scale Settle</option>
+                    <option value="pop">Pop Accent</option>
+                    <option value="blur">Blur In to Sharp</option>
+                    <option value="slide">Directional Slide</option>
+                    <option value="typewriter">Typewriter Cadence</option>
+                    <option value="bounce">Gentle Bounce</option>
+                    <option value="glow">Luminous Glow</option>
+                    <option value="highlight">Highlight Sweep</option>
+                    <option value="pulse">Breathing Pulse</option>
+                  </select>
+                  <p className="form-hint-sm">Animation only comes from Effects. Multiple types and effects combine freely.</p>
                 </div>
               </div>
             )}
@@ -495,16 +540,81 @@ export const ExportPage: React.FC<ExportPageProps> = ({
                 {motionLayers.watermark.enabled && (
                   <>
                     <div className="form-group">
-                      <label className="form-label-sm">Image URL or Data URL</label>
-                      <input
-                        type="url"
-                        placeholder="https://… or data:image/…"
-                        value={motionLayers.watermark.imageUrl ?? ''}
-                        onChange={(e) => updateWatermark({ imageUrl: e.target.value || null })}
-                        disabled={isExporting}
-                        className="text-input"
-                      />
+                      <div className="button-group-segment">
+                        <button
+                          type="button"
+                          className={`segment-btn ${motionLayers.watermark.sourceType === 'video' ? 'is-active' : ''}`}
+                          onClick={() => updateWatermark({ sourceType: 'video' })}
+                        >
+                          Video
+                        </button>
+                        <button
+                          type="button"
+                          className={`segment-btn ${motionLayers.watermark.sourceType === 'text' ? 'is-active' : ''}`}
+                          onClick={() => updateWatermark({ sourceType: 'text' })}
+                        >
+                          Text
+                        </button>
+                      </div>
                     </div>
+
+                    {motionLayers.watermark.sourceType === 'video' ? (
+                      <>
+                        <div className="form-group">
+                          <label className="form-label-sm">Upload MP4</label>
+                          <input
+                            type="file"
+                            accept="video/mp4,video/webm"
+                            disabled={isExporting}
+                            className="text-input"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                updateWatermark({ videoUrl: URL.createObjectURL(file) });
+                              }
+                            }}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label className="toggle-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={motionLayers.watermark.loop}
+                              onChange={(e) => updateWatermark({ loop: e.target.checked })}
+                              disabled={isExporting}
+                            />
+                            Loop
+                          </label>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="form-group">
+                          <label className="form-label-sm">Text</label>
+                          <input
+                            type="text"
+                            placeholder="@username"
+                            value={motionLayers.watermark.text ?? ''}
+                            onChange={(e) => updateWatermark({ text: e.target.value })}
+                            disabled={isExporting}
+                            className="text-input"
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label-sm">Style</label>
+                          <select
+                            className="select-field"
+                            value={motionLayers.watermark.textStyle}
+                            onChange={(e) => updateWatermark({ textStyle: e.target.value as WatermarkTextStyle })}
+                            disabled={isExporting}
+                          >
+                            <option value="plain">Plain</option>
+                            <option value="glass">Glass</option>
+                          </select>
+                        </div>
+                      </>
+                    )}
+
                     <div className="form-group">
                       <label className="form-label-sm">Position</label>
                       <select
@@ -562,6 +672,83 @@ export const ExportPage: React.FC<ExportPageProps> = ({
                         <option value="pulse">Pulse</option>
                       </select>
                     </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Video Transitions Tab */}
+            {activeMotionTab === 'transitions' && (
+              <div className="motion-panel">
+                <div className="toggle-row">
+                  <label className="toggle-label">Video Transitions</label>
+                  <button
+                    type="button"
+                    className={`toggle-pill ${(motionLayers.videoTransitions?.enabled ?? true) ? 'is-on' : ''}`}
+                    onClick={() => updateTransitions({ enabled: !(motionLayers.videoTransitions?.enabled ?? true) })}
+                    disabled={isExporting}
+                  >
+                    <span className="toggle-knob" />
+                  </button>
+                </div>
+
+                {(motionLayers.videoTransitions?.enabled ?? true) && (
+                  <>
+                    <div className="toggle-row" style={{ marginTop: '12px' }}>
+                      <label className="form-label-sm">Fade In</label>
+                      <button
+                        type="button"
+                        className={`toggle-pill ${motionLayers.videoTransitions?.fadeIn ? 'is-on' : ''}`}
+                        onClick={() => updateTransitions({ fadeIn: !motionLayers.videoTransitions?.fadeIn })}
+                        disabled={isExporting}
+                        style={{ transform: 'scale(0.8)' }}
+                      >
+                        <span className="toggle-knob" />
+                      </button>
+                    </div>
+                    {motionLayers.videoTransitions?.fadeIn && (
+                      <div className="form-group">
+                        <label className="form-label-sm">Duration ({(motionLayers.videoTransitions?.fadeInDuration ?? 0.7).toFixed(1)}s)</label>
+                        <input
+                          type="range"
+                          min={0.1}
+                          max={3.0}
+                          step={0.1}
+                          value={motionLayers.videoTransitions?.fadeInDuration ?? 0.7}
+                          onChange={(e) => updateTransitions({ fadeInDuration: Number(e.target.value) })}
+                          disabled={isExporting}
+                          className="range-input"
+                        />
+                      </div>
+                    )}
+
+                    <div className="toggle-row" style={{ marginTop: '12px' }}>
+                      <label className="form-label-sm">Fade Out</label>
+                      <button
+                        type="button"
+                        className={`toggle-pill ${motionLayers.videoTransitions?.fadeOut ? 'is-on' : ''}`}
+                        onClick={() => updateTransitions({ fadeOut: !motionLayers.videoTransitions?.fadeOut })}
+                        disabled={isExporting}
+                        style={{ transform: 'scale(0.8)' }}
+                      >
+                        <span className="toggle-knob" />
+                      </button>
+                    </div>
+                    {motionLayers.videoTransitions?.fadeOut && (
+                      <div className="form-group">
+                        <label className="form-label-sm">Duration ({(motionLayers.videoTransitions?.fadeOutDuration ?? 0.7).toFixed(1)}s)</label>
+                        <input
+                          type="range"
+                          min={0.1}
+                          max={3.0}
+                          step={0.1}
+                          value={motionLayers.videoTransitions?.fadeOutDuration ?? 0.7}
+                          onChange={(e) => updateTransitions({ fadeOutDuration: Number(e.target.value) })}
+                          disabled={isExporting}
+                          className="range-input"
+                        />
+                      </div>
+                    )}
                   </>
                 )}
               </div>

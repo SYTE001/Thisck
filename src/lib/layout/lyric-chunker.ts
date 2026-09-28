@@ -1,4 +1,5 @@
 import type { LyricLine, VisualLyricBlock, VisualLayoutType, Word } from '../../types/lyrics';
+import type { LyricsType } from '../render/lyricsAnimation/types';
 
 /**
  * VISUAL PHRASE COMPOSER
@@ -71,7 +72,8 @@ function partitionLineWords(words: string[]): string[][] {
 export function chunkLyricLine(
   line: LyricLine,
   sceneStartIndex: number = 0,
-  projectSeed: number = 42
+  projectSeed: number = 42,
+  lyricsType?: LyricsType
 ): VisualLyricBlock[] {
   const { id: lineId, text, words: originalWords } = line;
   
@@ -106,7 +108,7 @@ export function chunkLyricLine(
   // V2 Rule: If no word-level timing exists
   if (!originalWords || originalWords.length !== totalWords) {
     // If long phrase (duration >= 4.5s and 5+ words), break into editorial blocks
-    if (duration >= 4.5 && totalWords >= 5) {
+    if (duration >= 4.5 && totalWords >= 5 && lyricsType !== 'single-line') {
       const groups = partitionLineWords(rawWords);
       const blocks: VisualLyricBlock[] = [];
       let curStart = startTime;
@@ -115,7 +117,7 @@ export function chunkLyricLine(
         const gWords = groups[i];
         const gDuration = (gWords.length / totalWords) * duration;
         const gEnd = i === groups.length - 1 ? endTime : curStart + gDuration;
-        const { layoutType, lines, fontSizeMultiplier } = determineLayout(gWords, projectSeed + i);
+        const { layoutType, lines, fontSizeMultiplier } = determineLayout(gWords, projectSeed + i, lyricsType);
 
         blocks.push({
           id: `${lineId}-v${i}`,
@@ -137,7 +139,7 @@ export function chunkLyricLine(
       return blocks;
     }
 
-    const { layoutType, lines, fontSizeMultiplier } = determineLayout(rawWords, projectSeed);
+    const { layoutType, lines, fontSizeMultiplier } = determineLayout(rawWords, projectSeed, lyricsType);
     return [
       {
         id: `${lineId}-v0`,
@@ -163,7 +165,7 @@ export function chunkLyricLine(
   const blocks: VisualLyricBlock[] = [];
   for (let i = 0; i < chunkCandidates.length; i++) {
     const c = chunkCandidates[i];
-    const { layoutType, lines, fontSizeMultiplier } = determineLayout(c.words, projectSeed + i);
+    const { layoutType, lines, fontSizeMultiplier } = determineLayout(c.words, projectSeed + i, lyricsType);
     
     // Scene Index: "Background change must never interrupt a phrase."
     // All visual blocks derived from the same LyricLine share the same sceneIndex.
@@ -245,7 +247,8 @@ function partitionByWordTiming(
  */
 function determineLayout(
   words: string[],
-  projectSeed: number
+  projectSeed: number,
+  lyricsType?: LyricsType
 ): {
   layoutType: VisualLayoutType;
   lines: string[];
@@ -255,6 +258,44 @@ function determineLayout(
   const fullText = words.join(' ');
   const charLen = fullText.length;
   const seedVariation = projectSeed % 100;
+
+  // Explicit layout overrides based on LyricsType
+  if (lyricsType === 'single-line') {
+    return {
+      layoutType: 'single-line',
+      lines: [fullText],
+      fontSizeMultiplier: total <= 3 ? 1.15 : total <= 6 ? 1.05 : 0.95,
+    };
+  }
+
+  if (lyricsType === 'multi-line') {
+    const mid = Math.ceil(total / 2);
+    return {
+      layoutType: 'balanced-2-line',
+      lines: total <= 1 ? [fullText] : [words.slice(0, mid).join(' '), words.slice(mid).join(' ')],
+      fontSizeMultiplier: 1.0,
+    };
+  }
+
+  if (lyricsType === 'paragraph') {
+    if (total <= 3) {
+      return {
+        layoutType: 'single-line',
+        lines: [fullText],
+        fontSizeMultiplier: 1.1,
+      };
+    }
+    const third = Math.ceil(total / 3);
+    return {
+      layoutType: 'stacked-3-line',
+      lines: [
+        words.slice(0, third).join(' '),
+        words.slice(third, third * 2).join(' '),
+        words.slice(third * 2).join(' '),
+      ],
+      fontSizeMultiplier: 0.9,
+    };
+  }
 
   if (total === 1) {
     return {
@@ -331,13 +372,14 @@ function determineLayout(
  */
 export function chunkAllLyricLines(
   lines: LyricLine[],
-  projectSeed: number = 42
+  projectSeed: number = 42,
+  lyricsType?: LyricsType
 ): VisualLyricBlock[] {
   const allBlocks: VisualLyricBlock[] = [];
   let currentSceneIndex = 0;
 
   for (const line of lines) {
-    const lineBlocks = chunkLyricLine(line, currentSceneIndex, projectSeed);
+    const lineBlocks = chunkLyricLine(line, currentSceneIndex, projectSeed, lyricsType);
     allBlocks.push(...lineBlocks);
     currentSceneIndex++; // V2: Scene increments per natural phrase (line), not per block
   }

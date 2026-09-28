@@ -6,13 +6,6 @@ import type { MotionFrameState } from '../../../motion/adaptive-motion';
  * Returns words for the visual block.
  * If word-level timestamps exist, uses them.
  * If word-level timestamps do not exist, distributes the words naturally across the lyric line duration.
- *
- * Example:
- * "we are falling tonight"
- * 0.00 -> "we"
- * 0.25 -> "are"
- * 0.50 -> "falling"
- * 0.80 -> "tonight"
  */
 export function getDistributedWords(block: VisualLyricBlock): Word[] {
   if (block.words && block.words.length > 0) {
@@ -34,11 +27,10 @@ export function getDistributedWords(block: VisualLyricBlock): Word[] {
     ];
   }
 
-  // Target revealing all words by ~80% of the line duration (like the 0.00, 0.25, 0.50, 0.80 pattern)
-  // This leaves the remaining ~20% of duration for the complete phrase to be read together before transition.
+  // Target revealing all words by ~80% of the line duration
   const revealDuration = Math.min(duration * 0.80, Math.max(0.1, duration - 0.35));
 
-  // Weight words by length with a baseline (so short words still get a natural beat)
+  // Weight words by length with a baseline
   const weights = rawWords.map((w) => Math.max(2, Math.min(8, w.length)));
   const weightsExceptLast = weights.slice(0, -1);
   const sumWeights = weightsExceptLast.reduce((acc, val) => acc + val, 0) || 1;
@@ -77,18 +69,13 @@ function easeOutCubic(t: number): number {
 }
 
 /**
- * WORD-BY-WORD Lyrics Text Animation Preset
+ * WORD-BY-WORD Lyrics Text Animation Preset (Refactored for Stability)
  *
  * Requirements:
- * - The lyric line appears word-by-word from left to right.
- * - Each word starts slightly smaller (0.90) and transparent (0).
- * - When its timing begins, the word smoothly becomes visible and reaches normal size (1.00).
- * - translateY: 6px -> 0
- * - duration: approx 180-250ms (default 210ms)
- * - smooth ease-out (no bounce, no rotation, no excessive blur)
- * - Previously displayed words remain visible.
- * - The active word can receive a subtle emphasis (e.g. scale 1.03).
- * - Never animate the entire line as one block.
+ * - Solid, stable, clean, typography-focused.
+ * - Posisi teks tidak boleh ikut bergeser atau "dancing" hanya karena animasi lyrics.
+ * - Words appear sequentially on their fixed positions.
+ * - Default behavior is completely stable with zero unwanted movement.
  */
 export function calculateWordByWordState(
   block: VisualLyricBlock,
@@ -96,7 +83,6 @@ export function calculateWordByWordState(
   motion: MotionFrameState,
   config: any = {}
 ): LyricsAnimationState {
-  // Never animate the entire line as one block
   const line: LineAnimationState = {
     opacity: 1,
     scale: 1,
@@ -112,20 +98,20 @@ export function calculateWordByWordState(
     return { line, words: [] };
   }
 
-  // Animation duration: 180–250ms (default 210ms / 0.21s)
-  const enterDuration = config.enterDuration ? config.enterDuration / 1000 : 0.21;
-  const intensity = config.intensity ?? 1.0;
-  const targetScale = config.activeWordScale ?? 1.03;
+  // Animation duration: 150–220ms (default 180ms)
+  const enterDuration = config.enterDuration ? config.enterDuration / 1000 : 0.18;
+  const verticalMovement = config.verticalMovement ?? 0; // Default 0: no dancing / shaking!
+  const targetScale = config.activeWordScale ?? 1.0; // Default 1.0: no scaling wobble!
 
   const words: WordAnimationState[] = wordsList.map((w) => {
     // Before line startTime or after line endTime: strictly 0 opacity
     if (currentTime < block.startTime || currentTime >= block.endTime) {
-      return { opacity: 0, scale: 0.90, translateY: 6 * intensity };
+      return { opacity: 0, scale: 1.0, translateY: verticalMovement };
     }
 
     // Word timing has not arrived yet
     if (currentTime < w.startTime) {
-      return { opacity: 0, scale: 0.90, translateY: 6 * intensity };
+      return { opacity: 0, scale: 1.0, translateY: verticalMovement };
     }
 
     // Word has arrived!
@@ -133,23 +119,22 @@ export function calculateWordByWordState(
     const enterProgress = Math.min(1, elapsed / enterDuration);
     const eased = easeOutCubic(enterProgress);
 
-    // Incoming transition: opacity 0 -> 1, scale 0.90 -> 1.00, translateY 6px -> 0px
+    // Stable transition: opacity 0 -> 1 on fixed position
     let opacity = eased;
-    let scale = 0.90 + 0.10 * eased;
-    let translateY = 6 * (1 - eased) * intensity;
+    let scale = 1.0;
+    let translateY = verticalMovement * (1 - eased);
 
-    // Previously revealed words remain visible (when enterProgress === 1, opacity is 1, scale is 1, translateY is 0)
-
-    // Active word subtle emphasis
-    const isActive = currentTime >= w.startTime && currentTime < w.endTime;
-    if (isActive) {
-      const wDuration = Math.max(0.12, w.endTime - w.startTime);
-      const activeProgress = Math.min(1, elapsed / wDuration);
-      const emphasis = Math.sin(activeProgress * Math.PI) * (targetScale - 1.0) * intensity;
-      scale += emphasis;
+    // Optional active word scale if configured
+    if (targetScale !== 1.0) {
+      const isActive = currentTime >= w.startTime && currentTime < w.endTime;
+      if (isActive) {
+        const wDuration = Math.max(0.12, w.endTime - w.startTime);
+        const activeProgress = Math.min(1, elapsed / wDuration);
+        scale += Math.sin(activeProgress * Math.PI) * (targetScale - 1.0);
+      }
     }
 
-    // Line exit: when the whole block is exiting, fade out words gracefully
+    // Line exit: fade out gracefully
     if (motion.phase === 'exit') {
       opacity *= motion.opacity;
     }

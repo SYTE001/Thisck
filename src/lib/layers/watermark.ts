@@ -6,7 +6,6 @@
 
 import type { MotionLayer, LayerPrepareContext, LayerRenderContext } from '../render/motion-layer';
 import { LAYER_ZINDEX } from '../render/motion-layer';
-import { imageCache } from '../render/layer-cache';
 
 export type WatermarkPosition =
   | 'top-left'
@@ -25,13 +24,25 @@ export type WatermarkAnimationPreset =
   | 'subtle-slide'
   | 'pulse';
 
+export type WatermarkSourceType = 'video' | 'text';
+export type WatermarkTextStyle = 'plain' | 'glass';
+
 export interface WatermarkConfig {
   id: string;
   enabled: boolean;
   startTime: number;
   endTime: number;
-  /** URL or data URL of the watermark image/icon */
-  imageUrl: string | null;
+  sourceType: WatermarkSourceType;
+  
+  // Video Mode
+  /** URL or data URL of the video (previously imageUrl) */
+  videoUrl: string | null;
+  loop: boolean;
+  
+  // Text Mode
+  text: string;
+  textStyle: WatermarkTextStyle;
+
   position: WatermarkPosition;
   /** Size as a fraction of canvas width (0.05 = 5%). Default 0.08. */
   sizeFraction: number;
@@ -47,7 +58,11 @@ export const DEFAULT_WATERMARK_CONFIG: WatermarkConfig = {
   enabled: false,
   startTime: 0,
   endTime: Infinity,
-  imageUrl: null,
+  sourceType: 'text',
+  videoUrl: null,
+  loop: true,
+  text: '@username',
+  textStyle: 'plain',
   position: 'bottom-right',
   sizeFraction: 0.08,
   opacity: 0.7,
@@ -87,28 +102,48 @@ export class WatermarkLayer implements MotionLayer {
     this.endTime = this.config.endTime;
   }
 
-  /** PRD Section 26: Preload image asset once. */
+  // Video element caching
+  private videoEl: HTMLVideoElement | null = null;
+  private videoUrlLoaded: string | null = null;
+  
+  /** PRD Section 26: Preload video asset once. */
   async prepare(_ctx: LayerPrepareContext): Promise<void> {
-    if (!this.enabled || !this.config.imageUrl) return;
-    try {
-      await imageCache.load(this.config.imageUrl);
-      this.loadError = null;
-    } catch (e) {
-      this.loadError = (e as Error).message;
-      // PRD Section 33: Export validation should surface this error.
+    if (!this.enabled) return;
+    if (this.config.sourceType === 'video' && this.config.videoUrl) {
+      if (this.videoUrlLoaded !== this.config.videoUrl) {
+        this.videoEl = document.createElement('video');
+        this.videoEl.src = this.config.videoUrl;
+        this.videoEl.muted = true;
+        this.videoEl.playsInline = true;
+        this.videoEl.crossOrigin = 'anonymous';
+        // Wait for video metadata to know its intrinsic size
+        await new Promise<void>((resolve, reject) => {
+          if (!this.videoEl) return reject(new Error('Video element missing'));
+          this.videoEl.onloadedmetadata = () => resolve();
+          this.videoEl.onerror = () => reject(new Error('Failed to load watermark video'));
+        }).catch((e) => {
+          this.loadError = (e as Error).message;
+          this.videoEl = null;
+        });
+        
+        if (this.videoEl) {
+          this.videoUrlLoaded = this.config.videoUrl;
+          this.loadError = null;
+        }
+      }
     }
   }
 
   updateConfig(config: Partial<WatermarkConfig>): void {
-    const prevUrl = this.config.imageUrl;
+    const prevUrl = this.config.videoUrl;
     this.config = { ...this.config, ...config };
     this.enabled = this.config.enabled;
     this.startTime = this.config.startTime;
     this.endTime = this.config.endTime;
 
-    // PRD Section 31: Invalidate image cache if asset changed
-    if (config.imageUrl !== undefined && config.imageUrl !== prevUrl && prevUrl) {
-      imageCache.invalidate(prevUrl);
+    if (this.config.sourceType === 'video' && this.config.videoUrl !== prevUrl) {
+      this.videoUrlLoaded = null;
+      this.videoEl = null;
     }
   }
 
@@ -121,32 +156,82 @@ export class WatermarkLayer implements MotionLayer {
   }
 
   render(ctx: LayerRenderContext): void {
-    if (!this.enabled || !this.config.imageUrl) return;
-
-    const img = imageCache.get(this.config.imageUrl);
-    if (!img) return; // Not yet loaded; skip this frame silently
+    if (!this.enabled) return;
 
     const { ctx: canvasCtx, width, height, currentTime } = ctx;
 
-    // Resolve position
     const padding = this.config.paddingFraction * width;
-    const size = this.config.sizeFraction * width;
-    const { x, y } = resolvePosition(this.config.position, width, height, size, padding);
+    let baseSize = this.config.sizeFraction * width;
+    let itemWidth = baseSize;
+    let itemHeight = baseSize;
 
-    // Calculate animation state
+    // Determine intrinsic dimensions
+    if (this.config.sourceType === 'video') {
+      if (!this.videoEl) return; // Not yet loaded
+      const aspect = this.videoEl.videoWidth / (this.videoEl.videoHeight || 1);
+      itemHeight = baseSize;
+      itemWidth = baseSize * aspect;
+      
+      // Update video time deterministically
+      const localTime = currentTime - this.startTime;
+      const vidDur = this.videoEl.duration || 1;
+      let vidTime = localTime;
+      if (this.config.loop) {
+        vidTime = localTime % vidDur;
+      } else {
+        vidTime = Math.min(localTime, vidDur);
+      }
+      this.videoEl.currentTime = vidTime;
+    } else {
+      // Text mode
+      canvasCtx.font = `600 ${baseSize}px "Inter", sans-serif`;
+      const metrics = canvasCtx.measureText(this.config.text);
+      itemWidth = metrics.width;
+      itemHeight = baseSize; // approximate
+    }
+
+    const { x, y } = resolvePosition(this.config.position, width, height, itemWidth, itemHeight, padding);
     const animState = this.calculateAnimation(currentTime);
 
     canvasCtx.save();
     canvasCtx.globalAlpha = Math.max(0, Math.min(1, this.config.opacity * animState.opacity));
 
-    // Apply transform: scale around center of watermark
-    const cx = x + size / 2;
-    const cy = y + size / 2;
+    // Transform
+    const cx = x + itemWidth / 2;
+    const cy = y + itemHeight / 2;
     canvasCtx.translate(cx, cy);
     canvasCtx.scale(animState.scale, animState.scale);
     canvasCtx.translate(-cx, -cy);
 
-    canvasCtx.drawImage(img, x + animState.translateX, y + animState.translateY, size, size);
+    if (this.config.sourceType === 'video' && this.videoEl) {
+      canvasCtx.drawImage(this.videoEl, x + animState.translateX, y + animState.translateY, itemWidth, itemHeight);
+    } else if (this.config.sourceType === 'text') {
+      const drawX = x + animState.translateX;
+      const drawY = y + animState.translateY;
+      
+      if (this.config.textStyle === 'glass') {
+        const p = baseSize * 0.4;
+        canvasCtx.save();
+        canvasCtx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+        canvasCtx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        canvasCtx.lineWidth = 1;
+        // Blur backdrop (requires modern canvas)
+        if ('filter' in canvasCtx) {
+          canvasCtx.filter = 'blur(10px)';
+        }
+        canvasCtx.beginPath();
+        canvasCtx.roundRect(drawX - p, drawY - itemHeight * 0.2 - p, itemWidth + p*2, itemHeight + p*2, baseSize * 0.2);
+        canvasCtx.fill();
+        canvasCtx.filter = 'none';
+        canvasCtx.stroke();
+        canvasCtx.restore();
+      }
+      
+      canvasCtx.fillStyle = '#ffffff';
+      canvasCtx.textBaseline = 'top';
+      canvasCtx.fillText(this.config.text, drawX, drawY - itemHeight * 0.2); // adjusting for baseline
+    }
+
     canvasCtx.restore();
   }
 
@@ -217,7 +302,8 @@ export class WatermarkLayer implements MotionLayer {
   }
 
   dispose(): void {
-    // Image stays in global cache; nothing to release here
+    this.videoEl = null;
+    this.videoUrlLoaded = null;
   }
 }
 
@@ -225,22 +311,23 @@ function resolvePosition(
   position: WatermarkPosition,
   width: number,
   height: number,
-  size: number,
+  itemW: number,
+  itemH: number,
   padding: number
 ): { x: number; y: number } {
   switch (position) {
     case 'top-left':
       return { x: padding, y: padding };
     case 'top-center':
-      return { x: (width - size) / 2, y: padding };
+      return { x: (width - itemW) / 2, y: padding };
     case 'top-right':
-      return { x: width - size - padding, y: padding };
+      return { x: width - itemW - padding, y: padding };
     case 'bottom-left':
-      return { x: padding, y: height - size - padding };
+      return { x: padding, y: height - itemH - padding };
     case 'bottom-center':
-      return { x: (width - size) / 2, y: height - size - padding };
+      return { x: (width - itemW) / 2, y: height - itemH - padding };
     case 'bottom-right':
     default:
-      return { x: width - size - padding, y: height - size - padding };
+      return { x: width - itemW - padding, y: height - itemH - padding };
   }
 }

@@ -9,6 +9,7 @@ import type { MotionLayer, LayerRenderContext } from '../render/motion-layer';
 import { LayerCache, TextMeasurementCache } from '../render/layer-cache';
 import { RainOverlayLayer, DEFAULT_RAIN_CONFIG } from '../layers/rain-overlay';
 import { WatermarkLayer, DEFAULT_WATERMARK_CONFIG } from '../layers/watermark';
+import { VideoTransitionsLayer } from '../layers/video-transitions';
 import { calculateTextAnimationState } from '../render/text-animation';
 import { createInitialJobState, computeEstimatedRemaining } from '../render/render-job';
 import type { VisualLyricBlock } from '../../types/lyrics';
@@ -187,7 +188,7 @@ describe('RainOverlayLayer (PRD Section 23, 27, 29)', () => {
       save: () => { called = true; },
       restore: () => {},
     } as unknown as CanvasRenderingContext2D;
-    rain.render({ ctx: mockCtx, width: 1080, height: 1920, currentTime: 5, isPreview: false });
+    rain.render({ ctx: mockCtx, width: 1080, height: 1920, currentTime: 5, totalDuration: 100, isPreview: false });
     expect(called).toBe(false);
   });
 
@@ -225,13 +226,13 @@ describe('WatermarkLayer (PRD Section 25, 26)', () => {
   });
 
   it('does not render when imageUrl is null', () => {
-    const wm = new WatermarkLayer({ ...DEFAULT_WATERMARK_CONFIG, enabled: true, imageUrl: null });
+    const wm = new WatermarkLayer({ ...DEFAULT_WATERMARK_CONFIG, enabled: true, sourceType: 'video', videoUrl: null });
     let called = false;
     const mockCtx = {
       save: () => { called = true; },
       restore: () => {},
     } as unknown as CanvasRenderingContext2D;
-    wm.render({ ctx: mockCtx, width: 1080, height: 1920, currentTime: 1, isPreview: false });
+    wm.render({ ctx: mockCtx, width: 1080, height: 1920, currentTime: 1, totalDuration: 100, isPreview: false });
     expect(called).toBe(false);
   });
 });
@@ -299,3 +300,150 @@ describe('RenderJobState (PRD Section 18)', () => {
     expect(eta).toBe(0);
   });
 });
+
+// ─── VideoTransitionsLayer (Prompt Section 25) ───────────────────────────────
+
+describe('VideoTransitionsLayer', () => {
+  function makeMockCtx() {
+    let alpha = 1;
+    const ops: string[] = [];
+    const ctx = {
+      ops,
+      save: () => ops.push('save'),
+      restore: () => ops.push('restore'),
+      fillRect: (x: number, y: number, w: number, h: number) => ops.push(`fillRect(${x},${y},${w},${h})`),
+      get globalAlpha() { return alpha; },
+      set globalAlpha(v: number) { alpha = v; ops.push(`alpha=${v.toFixed(2)}`); },
+      fillStyle: '#000000',
+    } as unknown as CanvasRenderingContext2D & { ops: string[] };
+    return ctx;
+  }
+
+  it('Fade In starts at 100% black, has partial opacity at midpoint, and becomes invisible at end', () => {
+    const layer = new VideoTransitionsLayer({
+      enabled: true,
+      fadeIn: true,
+      fadeInDuration: 2.0,
+      fadeOut: false,
+    });
+
+    // Start (t = 0s): 100% black
+    const ctxStart = makeMockCtx();
+    layer.render({ ctx: ctxStart, width: 1080, height: 1920, currentTime: 0, totalDuration: 10, isPreview: false });
+    expect(ctxStart.ops).toContain('alpha=1.00');
+    expect(ctxStart.ops).toContain('fillRect(0,0,1080,1920)');
+
+    // Midpoint (t = 1.0s): 50% black
+    const ctxMid = makeMockCtx();
+    layer.render({ ctx: ctxMid, width: 1080, height: 1920, currentTime: 1.0, totalDuration: 10, isPreview: false });
+    expect(ctxMid.ops).toContain('alpha=0.50');
+    expect(ctxMid.ops).toContain('fillRect(0,0,1080,1920)');
+
+    // End (t = 2.0s): fully transparent (no black rectangle drawn)
+    const ctxEnd = makeMockCtx();
+    layer.render({ ctx: ctxEnd, width: 1080, height: 1920, currentTime: 2.0, totalDuration: 10, isPreview: false });
+    expect(ctxEnd.ops.some((op) => op.startsWith('fillRect'))).toBe(false);
+  });
+
+  it('Fade Out is inactive before transition, partially black at midpoint, and 100% black at end', () => {
+    const layer = new VideoTransitionsLayer({
+      enabled: true,
+      fadeIn: false,
+      fadeOut: true,
+      fadeOutDuration: 2.0,
+    });
+    const totalDuration = 10.0;
+
+    // Before transition (t = 7.0s): no black overlay
+    const ctxBefore = makeMockCtx();
+    layer.render({ ctx: ctxBefore, width: 1080, height: 1920, currentTime: 7.0, totalDuration, isPreview: false });
+    expect(ctxBefore.ops.some((op) => op.startsWith('fillRect'))).toBe(false);
+
+    // Midpoint (t = 9.0s): 50% black
+    const ctxMid = makeMockCtx();
+    layer.render({ ctx: ctxMid, width: 1080, height: 1920, currentTime: 9.0, totalDuration, isPreview: false });
+    expect(ctxMid.ops).toContain('alpha=0.50');
+    expect(ctxMid.ops).toContain('fillRect(0,0,1080,1920)');
+
+    // End (t = 10.0s): 100% black
+    const ctxEnd = makeMockCtx();
+    layer.render({ ctx: ctxEnd, width: 1080, height: 1920, currentTime: 10.0, totalDuration, isPreview: false });
+    expect(ctxEnd.ops).toContain('alpha=1.00');
+    expect(ctxEnd.ops).toContain('fillRect(0,0,1080,1920)');
+  });
+});
+
+// ─── WatermarkLayer (Prompt Section 25) ──────────────────────────────────────
+
+describe('WatermarkLayer text & glass modes', () => {
+  function makeMockCtx() {
+    let alpha = 1;
+    const ops: string[] = [];
+    const ctx = {
+      ops,
+      save: () => ops.push('save'),
+      restore: () => ops.push('restore'),
+      fillText: (text: string, x: number, y: number) => ops.push(`fillText(${text},${Math.round(x)},${Math.round(y)})`),
+      measureText: (text: string) => ({ width: text.length * 10 }),
+      roundRect: (x: number, y: number, w: number, h: number) => ops.push(`roundRect(${Math.round(x)},${Math.round(y)},${Math.round(w)},${Math.round(h)})`),
+      fill: () => ops.push('fill'),
+      stroke: () => ops.push('stroke'),
+      beginPath: () => ops.push('beginPath'),
+      translate: () => {},
+      scale: () => {},
+      get globalAlpha() { return alpha; },
+      set globalAlpha(v: number) { alpha = v; ops.push(`alpha=${v.toFixed(2)}`); },
+      font: '',
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 1,
+      textBaseline: 'top',
+    } as unknown as CanvasRenderingContext2D & { ops: string[] };
+    return ctx;
+  }
+
+  it('renders arbitrary text watermark', () => {
+    const wm = new WatermarkLayer({
+      enabled: true,
+      sourceType: 'text',
+      text: '@sound_studio',
+      textStyle: 'plain',
+      opacity: 0.8,
+    });
+
+    const ctx = makeMockCtx();
+    wm.render({ ctx, width: 1080, height: 1920, currentTime: 1, totalDuration: 10, isPreview: false });
+    expect(ctx.ops.some((op) => op.includes('fillText(@sound_studio'))).toBe(true);
+    expect(ctx.ops).toContain('alpha=0.80');
+  });
+
+  it('Plain output != Glass output', () => {
+    const wmPlain = new WatermarkLayer({
+      enabled: true,
+      sourceType: 'text',
+      text: '@artist',
+      textStyle: 'plain',
+    });
+
+    const wmGlass = new WatermarkLayer({
+      enabled: true,
+      sourceType: 'text',
+      text: '@artist',
+      textStyle: 'glass',
+    });
+
+    const ctxPlain = makeMockCtx();
+    const ctxGlass = makeMockCtx();
+
+    wmPlain.render({ ctx: ctxPlain, width: 1080, height: 1920, currentTime: 1, totalDuration: 10, isPreview: false });
+    wmGlass.render({ ctx: ctxGlass, width: 1080, height: 1920, currentTime: 1, totalDuration: 10, isPreview: false });
+
+    // Glass output contains backdrop rounded rectangle and stroke
+    expect(ctxGlass.ops.some((op) => op.includes('roundRect'))).toBe(true);
+    expect(ctxGlass.ops).toContain('stroke');
+    // Plain output does not contain backdrop rect
+    expect(ctxPlain.ops.some((op) => op.includes('roundRect'))).toBe(false);
+    expect(ctxPlain.ops).not.toEqual(ctxGlass.ops);
+  });
+});
+

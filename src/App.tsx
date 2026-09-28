@@ -3,6 +3,7 @@ import type { LyricLine, TrackMetadata, TimingSource } from './types/lyrics';
 import type { StyleConfig, ExportSettings, AudioTrackState, ProjectState, ActiveTab, MotionLayersConfig } from './types/project';
 import { DEFAULT_RAIN_CONFIG } from './lib/layers/rain-overlay';
 import { DEFAULT_WATERMARK_CONFIG } from './lib/layers/watermark';
+import { DEFAULT_TRANSITIONS_CONFIG } from './lib/layers/video-transitions';
 import { Navigation } from './components/Navigation';
 import { ProjectsPage } from './components/pages/ProjectsPage';
 import { LyricsPage } from './components/pages/LyricsPage';
@@ -56,15 +57,28 @@ export function App() {
     format: 'mp4',
   });
 
-  // Visual Chunking Layer: LRC Timeline -> Visual Chunker -> Visual Lyric Blocks
-  const visualBlocks = useMemo(() => chunkAllLyricLines(lines, 42), [lines]);
-
   // PRD Section 19-25: Motion layer configuration (text animation, overlays, watermark)
   const [motionLayers, setMotionLayers] = useState<MotionLayersConfig>({
-    textAnimation: 'karaoke',
+    lyricsType: 'word-by-word',
+    lyricsEffect: 'fade',
+    lyricsEffectConfig: {
+      duration: 200,
+      intensity: 1.0,
+      easing: 'ease-out',
+      direction: 'up',
+      stagger: 40,
+    },
+    textAnimation: 'word-by-word',
     rain: { ...DEFAULT_RAIN_CONFIG },
     watermark: { ...DEFAULT_WATERMARK_CONFIG },
+    videoTransitions: { ...DEFAULT_TRANSITIONS_CONFIG },
   });
+
+  // Visual Chunking Layer: LRC Timeline -> Visual Chunker -> Visual Lyric Blocks
+  const visualBlocks = useMemo(
+    () => chunkAllLyricLines(lines, 42, motionLayers.lyricsType),
+    [lines, motionLayers.lyricsType]
+  );
 
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);

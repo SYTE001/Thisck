@@ -21,6 +21,8 @@ export interface LayerRenderContext {
   height: number;
   /** Current time in seconds */
   currentTime: number;
+  /** Total project duration in seconds */
+  totalDuration: number;
   /** Whether this is a preview (lower quality allowed) */
   isPreview: boolean;
 }
@@ -80,7 +82,8 @@ export type MotionLayerType =
   | 'lyrics-effect'
   | 'watermark'
   | 'foreground-decoration'
-  | 'post-process';
+  | 'post-process'
+  | 'transition';
 
 /** Default zIndex values by layer type for deterministic ordering */
 export const LAYER_ZINDEX: Record<MotionLayerType, number> = {
@@ -94,6 +97,7 @@ export const LAYER_ZINDEX: Record<MotionLayerType, number> = {
   'watermark': 70,
   'foreground-decoration': 80,
   'post-process': 90,
+  'transition': 100,
 };
 
 /**

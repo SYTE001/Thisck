@@ -94,7 +94,7 @@ describe('calculateWordByWordState', () => {
     expect(state.words.every((w) => w.opacity === 0)).toBe(true);
   });
 
-  it('animates the incoming word with opacity 0->1, scale 0.90->1.00, translateY 6->0', () => {
+  it('animates the incoming word with opacity 0->1 while maintaining rock-solid stable position', () => {
     const block = createMockBlock({
       startTime: 10.0,
       endTime: 14.0,
@@ -107,23 +107,35 @@ describe('calculateWordByWordState', () => {
     // Right as word 1 begins (10.0s):
     const motionAtStart = calculateBlockMotion(block, 10.0);
     const stateAtStart = calculateWordByWordState(block, 10.0, motionAtStart);
-    // At t=0, progress=0: opacity=0, scale=0.90, translateY=6
+    // At t=0, progress=0: opacity=0, scale=1.00 (stable), translateY=0 (no jump)
     expect(stateAtStart.words[0].opacity).toBeCloseTo(0, 2);
-    expect(stateAtStart.words[0].scale).toBeCloseTo(0.90, 2);
-    expect(stateAtStart.words[0].translateY).toBeCloseTo(6, 1);
+    expect(stateAtStart.words[0].scale).toBeCloseTo(1.00, 2);
+    expect(stateAtStart.words[0].translateY).toBeCloseTo(0, 1);
 
     // Midway through entry of word 1 (e.g. 100ms in):
     const motionMidEntry = calculateBlockMotion(block, 10.1);
     const stateMidEntry = calculateWordByWordState(block, 10.1, motionMidEntry);
     expect(stateMidEntry.words[0].opacity).toBeGreaterThan(0.5);
-    expect(stateMidEntry.words[0].scale).toBeGreaterThan(0.90);
-    expect(stateMidEntry.words[0].translateY).toBeLessThan(6);
-    expect(stateMidEntry.words[0].translateY).toBeGreaterThanOrEqual(0);
+    expect(stateMidEntry.words[0].scale).toBeCloseTo(1.00, 2);
+    expect(stateMidEntry.words[0].translateY).toBe(0);
 
-    // Word 2 has not started yet, so remains hidden
+    // Word 2 has not started yet, so remains hidden at scale 1.0 and translateY 0
     expect(stateMidEntry.words[1].opacity).toBe(0);
-    expect(stateMidEntry.words[1].scale).toBe(0.90);
-    expect(stateMidEntry.words[1].translateY).toBe(6);
+    expect(stateMidEntry.words[1].scale).toBe(1.00);
+    expect(stateMidEntry.words[1].translateY).toBe(0);
+  });
+
+  it('respects optional custom verticalMovement and scale if explicitly configured', () => {
+    const block = createMockBlock({
+      startTime: 10.0,
+      endTime: 14.0,
+      words: [
+        { id: 'w1', text: 'we', startTime: 10.0, endTime: 10.8 },
+      ],
+    });
+    const motion = calculateBlockMotion(block, 10.0);
+    const state = calculateWordByWordState(block, 10.0, motion, { verticalMovement: 6, activeWordScale: 1.05 });
+    expect(state.words[0].translateY).toBeCloseTo(6, 1);
   });
 
   it('keeps previously revealed words visible when subsequent words animate', () => {

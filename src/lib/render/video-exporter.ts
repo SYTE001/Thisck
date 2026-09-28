@@ -2,6 +2,7 @@ import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import type { LyricLine, VisualLyricBlock } from '../../types/lyrics';
 import type { ExportSettings, StyleConfig, MotionLayersConfig } from '../../types/project';
 import type { TextAnimationPreset } from './text-animation';
+import type { LyricsType, LyricsEffect, LyricsEffectConfig } from './lyricsAnimation/types';
 import { renderEditorialFrame } from './canvas-renderer';
 import { chunkAllLyricLines } from '../layout/lyric-chunker';
 import { LayerCompositor } from './layer-compositor';
@@ -73,11 +74,11 @@ export function validateExportConfig(
     errors.push(`Invalid FPS value "${exportSettings.fps}". Supported: 24, 30, 60.`);
   }
 
-  if (motionLayers?.watermark?.enabled && motionLayers.watermark.imageUrl) {
-    // Image URL format check
-    const url = motionLayers.watermark.imageUrl;
+  if (motionLayers?.watermark?.enabled && motionLayers.watermark.sourceType === 'video' && motionLayers.watermark.videoUrl) {
+    // Video URL format check
+    const url = motionLayers.watermark.videoUrl;
     if (!url.startsWith('http') && !url.startsWith('data:') && !url.startsWith('blob:')) {
-      errors.push('Watermark image URL format is not supported.');
+      errors.push('Watermark video URL format is not supported.');
     }
   }
 
@@ -173,6 +174,10 @@ export async function exportVideo(options: VideoExportOptions): Promise<Blob> {
   if (motionLayers?.watermark?.enabled) {
     compositor.addLayer(new WatermarkLayer(motionLayers.watermark));
   }
+  if (motionLayers?.videoTransitions?.enabled) {
+    const { VideoTransitionsLayer } = await import('../layers/video-transitions');
+    compositor.addLayer(new VideoTransitionsLayer(motionLayers.videoTransitions));
+  }
 
   if (compositor.getLayers().length > 0) {
     await compositor.prepare(false);
@@ -180,6 +185,9 @@ export async function exportVideo(options: VideoExportOptions): Promise<Blob> {
 
   const textAnimationPreset: TextAnimationPreset = motionLayers?.textAnimation ?? 'slide-up';
   const textAnimationConfig = motionLayers?.textAnimationConfig;
+  const lyricsType = motionLayers?.lyricsType;
+  const lyricsEffect = motionLayers?.lyricsEffect;
+  const lyricsEffectConfig = motionLayers?.lyricsEffectConfig;
 
   // Try WebCodecs + mp4-muxer (pioneered deterministic pipeline)
   const isWebCodecsSupported = typeof window !== 'undefined' && 'VideoEncoder' in window;
@@ -204,6 +212,9 @@ export async function exportVideo(options: VideoExportOptions): Promise<Blob> {
       artistName,
       textAnimationPreset,
       textAnimationConfig,
+      lyricsType,
+      lyricsEffect,
+      lyricsEffectConfig,
       compositor,
       jobState,
       onProgress,
@@ -231,6 +242,9 @@ export async function exportVideo(options: VideoExportOptions): Promise<Blob> {
     artistName,
     textAnimationPreset,
     textAnimationConfig,
+    lyricsType,
+    lyricsEffect,
+    lyricsEffectConfig,
     compositor,
     jobState,
     onProgress,
@@ -260,6 +274,9 @@ interface InternalExportParams {
   artistName?: string;
   textAnimationPreset: TextAnimationPreset;
   textAnimationConfig?: any;
+  lyricsType?: LyricsType;
+  lyricsEffect?: LyricsEffect;
+  lyricsEffectConfig?: LyricsEffectConfig;
   compositor: LayerCompositor;
   jobState: RenderJobState;
   onProgress?: (progress: ExportProgress) => void;
@@ -267,16 +284,15 @@ interface InternalExportParams {
   shouldCancel?: () => boolean;
 }
 
-/** Render a single frame: editorial layer + overlay/watermark compositor. */
 function renderFrame(
   ctx: CanvasRenderingContext2D,
   params: Pick<
     InternalExportParams,
-    'width' | 'height' | 'lines' | 'style' | 'visualBlocks' | 'trackTitle' | 'artistName' | 'textAnimationPreset' | 'textAnimationConfig' | 'compositor'
+    'width' | 'height' | 'lines' | 'style' | 'visualBlocks' | 'trackTitle' | 'artistName' | 'textAnimationPreset' | 'textAnimationConfig' | 'lyricsType' | 'lyricsEffect' | 'lyricsEffectConfig' | 'compositor' | 'durationSec'
   >,
   currentTime: number
 ): void {
-  const { width, height, lines, style, visualBlocks, trackTitle, artistName, textAnimationPreset, textAnimationConfig, compositor } = params;
+  const { width, height, lines, style, visualBlocks, trackTitle, artistName, textAnimationPreset, textAnimationConfig, lyricsType, lyricsEffect, lyricsEffectConfig, compositor, durationSec } = params;
 
   // 1. Editorial lyric frame (background, text, decoration)
   renderEditorialFrame(ctx, {
@@ -290,12 +306,15 @@ function renderFrame(
     artistName,
     textAnimationPreset,
     textAnimationConfig,
+    lyricsType,
+    lyricsEffect,
+    lyricsEffectConfig,
     isPreview: false,
   });
 
   // 2. Overlay / watermark layers on top
   if (compositor.getLayers().length > 0) {
-    compositor.renderFrame(ctx, currentTime, false);
+    compositor.renderFrame(ctx, currentTime, durationSec, false);
   }
 }
 
@@ -432,7 +451,7 @@ async function exportWithWebCodecs(params: InternalExportParams): Promise<Blob> 
 
     const currentTime = startTimeSec + (f / fps);
 
-    renderFrame(ctx, { width, height, lines, style, visualBlocks, trackTitle, artistName, textAnimationPreset, textAnimationConfig, compositor }, currentTime);
+    renderFrame(ctx, { width, height, lines, style, visualBlocks, trackTitle, artistName, textAnimationPreset, textAnimationConfig, compositor, durationSec }, currentTime);
 
     const timestampUs = f * frameDurationUs;
     const videoFrame = new VideoFrame(canvas, {
@@ -609,7 +628,7 @@ async function exportWithMediaRecorder(params: InternalExportParams): Promise<Bl
         }
 
         const currentTime = startTimeSec + (f / fps);
-        renderFrame(ctx, { width: params.width, height: params.height, lines, style, visualBlocks, trackTitle, artistName, textAnimationPreset, textAnimationConfig, compositor }, currentTime);
+        renderFrame(ctx, { width: params.width, height: params.height, lines, style, visualBlocks, trackTitle, artistName, textAnimationPreset, textAnimationConfig, compositor, durationSec: params.durationSec }, currentTime);
 
         if (f % 15 === 0) {
           const elapsedMs = performance.now() - renderStartMs;

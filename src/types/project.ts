@@ -2,6 +2,7 @@ import type { LyricLine, TrackMetadata, TimingSource } from './lyrics';
 import type { TextAnimationPreset } from '../lib/render/text-animation';
 import type { RainOverlayConfig } from '../lib/layers/rain-overlay';
 import type { WatermarkConfig } from '../lib/layers/watermark';
+import type { VideoTransitionsConfig } from '../lib/layers/video-transitions';
 
 export type ActiveTab = 'projects' | 'lyrics' | 'timeline' | 'design' | 'preview' | 'export' | 'settings';
 
@@ -55,14 +56,24 @@ export interface ExportSettings {
   outputRange?: OutputRange;
 }
 
+import type { LyricsType, LyricsEffect, LyricsEffectConfig } from '../lib/render/lyricsAnimation/types';
+
 /**
  * Motion layers configuration.
  * PRD Section 19-25: extensible compositing layer system.
+ * Specification: Complete independent separation of LYRICS TYPE and LYRICS EFFECT.
  */
 export interface MotionLayersConfig {
-  /** Text animation preset applied to all lyric blocks */
+  /** Lyrics Type: determines content and display behavior (solid & stable) */
+  lyricsType?: LyricsType;
+  /** Lyrics Effect: determines visual motion and animation behavior */
+  lyricsEffect?: LyricsEffect;
+  /** Detailed configuration for the lyrics effect */
+  lyricsEffectConfig?: LyricsEffectConfig;
+
+  /** Legacy text animation preset (kept for backward compatibility) */
   textAnimation: TextAnimationPreset;
-  /** Custom settings for the selected text animation */
+  /** Legacy custom settings for text animation (kept for backward compatibility) */
   textAnimationConfig?: {
     intensity?: number;
     enterDuration?: number;
@@ -77,6 +88,8 @@ export interface MotionLayersConfig {
   rain: RainOverlayConfig;
   /** Watermark layer settings */
   watermark: WatermarkConfig;
+  /** Video transitions settings */
+  videoTransitions?: VideoTransitionsConfig;
 }
 
 export interface AudioTrackState {

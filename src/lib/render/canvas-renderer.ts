@@ -1,11 +1,11 @@
 import type { LyricLine, VisualLyricBlock } from '../../types/lyrics';
 import type { StyleConfig } from '../../types/project';
 import type { TextAnimationPreset } from './text-animation';
-import { calculateBlockMotion } from '../motion/adaptive-motion';
+import type { LyricsType, LyricsEffect, LyricsEffectConfig } from './lyricsAnimation/types';
 import { chunkAllLyricLines, getActiveVisualBlockAt } from '../layout/lyric-chunker';
 import { TextMeasurementCache, getNoiseCanvas } from './layer-cache';
 import { applyTextAnimationTransform } from './text-animation';
-import { getAnimationState } from './lyricsAnimation/animationEngine';
+import { getLyricsAnimationState } from './lyricsAnimation/animationEngine';
 import { getDistributedWords } from './lyricsAnimation/presets/wordByWord';
 
 export interface RenderOptions {
@@ -18,9 +18,15 @@ export interface RenderOptions {
   projectSeed?: number;
   trackTitle?: string;
   artistName?: string;
-  /** Text animation preset. Default 'slide-up' (matches original behaviour). */
+  /** Layer 1: Content & Display Behavior */
+  lyricsType?: LyricsType;
+  /** Layer 2: Visual Motion & Animation Behavior */
+  lyricsEffect?: LyricsEffect;
+  /** Configuration for lyrics effect */
+  lyricsEffectConfig?: LyricsEffectConfig;
+  /** Text animation preset (legacy compatibility) */
   textAnimationPreset?: TextAnimationPreset;
-  /** Text animation config */
+  /** Text animation config (legacy compatibility) */
   textAnimationConfig?: any;
   /**
    * Whether this is a preview render.
@@ -185,9 +191,54 @@ export function renderEditorialFrame(
   // 5. Draw CURRENT ACTIVE LYRIC ONLY
   // PRIORITY 1: NO GHOSTING. Zero previous-lyric shadow, blur, opacity, or trail.
   if (activeBlock) {
-    // PRD Section 22: Calculate dynamic animation state (cheap per frame)
-    const motion = calculateBlockMotion(activeBlock, currentTime, 8, textAnimationConfig);
-    const lyricsAnimState = getAnimationState(textAnimationPreset, activeBlock, currentTime, motion, textAnimationConfig);
+    // Resolve effective Lyrics Type and Lyrics Effect
+    let effType: LyricsType = options.lyricsType || 'word-by-word';
+    let effEffect: LyricsEffect = options.lyricsEffect || 'none';
+    let effConfig: LyricsEffectConfig | undefined = options.lyricsEffectConfig;
+
+    if (!options.lyricsType || !options.lyricsEffect) {
+      const preset = textAnimationPreset || 'karaoke';
+      if (preset === 'word-by-word') {
+        effType = options.lyricsType || 'word-by-word';
+        effEffect = options.lyricsEffect || 'fade';
+      } else if (preset === 'karaoke') {
+        effType = options.lyricsType || 'karaoke';
+        effEffect = options.lyricsEffect || 'none';
+      } else if (preset === 'kinetic') {
+        effType = options.lyricsType || 'word-by-word';
+        effEffect = options.lyricsEffect || 'kinetic';
+      } else if (preset === 'cinematic' || preset === 'blur-to-sharp') {
+        effType = options.lyricsType || 'single-line';
+        effEffect = options.lyricsEffect || 'blur';
+      } else if (preset === 'fade') {
+        effType = options.lyricsType || 'single-line';
+        effEffect = options.lyricsEffect || 'fade';
+      } else if (preset === 'slide-up' || preset === 'slide-down') {
+        effType = options.lyricsType || 'single-line';
+        effEffect = options.lyricsEffect || 'slide';
+      } else if (preset === 'scale-in') {
+        effType = options.lyricsType || 'single-line';
+        effEffect = options.lyricsEffect || 'scale';
+      }
+    }
+
+    if (!effConfig && textAnimationConfig) {
+      effConfig = {
+        duration: textAnimationConfig.enterDuration ?? 200,
+        intensity: textAnimationConfig.intensity ?? 1.0,
+        direction: 'up',
+        stagger: textAnimationConfig.wordStagger ? textAnimationConfig.wordStagger * 1000 : 40,
+      };
+    }
+
+    const lyricsAnimState = getLyricsAnimationState(
+      effType,
+      effEffect,
+      activeBlock,
+      currentTime,
+      effConfig,
+      style.accentColor || '#E6C280'
+    );
     const lineState = lyricsAnimState.line;
     const animState = {
       opacity: lineState.opacity,
@@ -195,7 +246,7 @@ export function renderEditorialFrame(
       scale: lineState.scale,
       blur: lineState.blur,
       letterSpacing: lineState.letterSpacing ?? null,
-      activeWordIndex: motion.activeWordIndex,
+      activeWordIndex: 0,
     };
 
     if (animState.opacity > 0) {
@@ -298,19 +349,9 @@ export function renderEditorialFrame(
         ctx.letterSpacing = `${animState.letterSpacing}px`;
       }
 
-      // Check if word-level progressive animation is available
-      const isWordAnimatedPreset =
-        textAnimationPreset === 'word-by-word' ||
-        textAnimationPreset === 'karaoke' ||
-        textAnimationPreset === 'kinetic';
-
-      const effectiveWords =
-        activeBlock.words && activeBlock.words.length > 0
-          ? activeBlock.words
-          : (isWordAnimatedPreset ? getDistributedWords(activeBlock) : undefined);
-
+      // Check if word-level animation is available from lyrics animation state
+      const effectiveWords = getDistributedWords(activeBlock);
       const hasWordAnimation = !!(
-        effectiveWords &&
         effectiveWords.length > 0 &&
         lyricsAnimState.words &&
         lyricsAnimState.words.length > 0
@@ -319,7 +360,7 @@ export function renderEditorialFrame(
       let wordCursor = 0;
       const renderLyricLine = (lineText: string, lineY: number, shiftX: number = 0) => {
         const lineWordCount = lineText.trim().split(/\s+/).filter(Boolean).length;
-        const lineWords = hasWordAnimation ? effectiveWords!.slice(wordCursor, wordCursor + lineWordCount) : [];
+        const lineWords = hasWordAnimation ? effectiveWords.slice(wordCursor, wordCursor + lineWordCount) : [];
         const wordStartIndex = wordCursor;
         wordCursor += lineWordCount;
 
@@ -344,26 +385,50 @@ export function renderEditorialFrame(
 
         let currentX = width / 2 - totalLineWidth / 2 + shiftX;
 
+        // Progressive reveal mode: clip smoothly from left to right without moving text
+        if (effType === 'progressive' && lyricsAnimState.revealProgress !== undefined) {
+          const clipWidth = totalLineWidth * Math.max(0, Math.min(1, lyricsAnimState.revealProgress));
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(currentX - 10, lineY - lineHeightPx, clipWidth + 10, lineHeightPx * 2);
+          ctx.clip();
+        }
+
         lineWords.forEach((wordItem, wRelIdx) => {
           const globalWordIdx = wordStartIndex + wRelIdx;
           const wordState = lyricsAnimState.words[globalWordIdx];
 
           if (!wordState || wordState.opacity > 0.001) {
             ctx.save();
-            ctx.fillStyle = textColor;
-            let drawX = currentX;
-            let drawY = lineY;
+            const drawX = currentX + (wordState?.translateX || 0);
+            const drawY = lineY + (wordState?.translateY || 0);
 
             if (wordState) {
-              ctx.globalAlpha = Math.max(0, Math.min(1, wordState.opacity));
-              const centerX = currentX + wordWidths[wRelIdx] / 2;
-              const centerY = lineY;
-              ctx.translate(centerX, centerY + wordState.translateY);
-              ctx.scale(wordState.scale, wordState.scale);
-              ctx.translate(-centerX, -centerY);
+              ctx.globalAlpha = Math.max(0, Math.min(1, animState.opacity * wordState.opacity));
+
+              if (wordState.translateX || wordState.translateY || (wordState.scale !== undefined && wordState.scale !== 1.0)) {
+                const centerX = currentX + wordWidths[wRelIdx] / 2;
+                const centerY = lineY;
+                ctx.translate(centerX, centerY);
+                if (wordState.scale !== undefined && wordState.scale !== 1.0) {
+                  ctx.scale(wordState.scale, wordState.scale);
+                }
+                ctx.translate(-centerX, -centerY);
+              }
+
+              if (wordState.blur && wordState.blur > 0) {
+                ctx.filter = `blur(${wordState.blur.toFixed(1)}px)`;
+              }
+
+              if (wordState.glow && wordState.glow > 0) {
+                ctx.shadowColor = wordState.colorOverride || style.accentColor || '#E6C280';
+                ctx.shadowBlur = wordState.glow;
+              }
+
+              ctx.fillStyle = wordState.colorOverride || textColor;
             } else {
-              const isWordActive = globalWordIdx <= motion.activeWordIndex;
-              ctx.globalAlpha = isWordActive ? animState.opacity : animState.opacity * 0.42;
+              ctx.globalAlpha = animState.opacity;
+              ctx.fillStyle = textColor;
             }
 
             ctx.textAlign = 'left';
@@ -373,6 +438,10 @@ export function renderEditorialFrame(
 
           currentX += wordWidths[wRelIdx] + spaceWidth;
         });
+
+        if (effType === 'progressive' && lyricsAnimState.revealProgress !== undefined) {
+          ctx.restore();
+        }
       };
 
       // Render based on Layout Type

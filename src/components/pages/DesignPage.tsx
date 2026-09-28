@@ -9,8 +9,37 @@ import {
 } from 'lucide-react';
 import type { LyricLine, VisualLyricBlock, QualityValidationResult } from '../../types/lyrics';
 import type { StyleConfig, MotionLayersConfig } from '../../types/project';
+import type { LyricsType, LyricsEffect } from '../../lib/render/lyricsAnimation/types';
 import { STYLE_PRESETS } from '../../lib/styles/presets';
 import { PreviewPlayer } from '../PreviewPlayer';
+
+const LYRICS_TYPE_OPTIONS: { id: LyricsType; label: string; desc: string }[] = [
+  { id: 'single-line', label: 'Single Line', desc: '1 line centered per block' },
+  { id: 'multi-line', label: 'Multi Line', desc: 'Balanced 2 lines' },
+  { id: 'paragraph', label: 'Paragraph', desc: 'Stacked 3+ lines' },
+  { id: 'word-by-word', label: 'Word by Word', desc: 'Sequential reveal, fixed layout' },
+  { id: 'character', label: 'Character', desc: 'Character by character reveal' },
+  { id: 'highlighted-word', label: 'Highlighted Word', desc: 'All visible, active word highlighted' },
+  { id: 'karaoke', label: 'Karaoke', desc: 'All visible, dim to sung transition' },
+  { id: 'progressive', label: 'Progressive', desc: 'Continuous left-to-right wipe' },
+];
+
+const LYRICS_EFFECT_OPTIONS: { id: LyricsEffect; label: string; desc: string }[] = [
+  { id: 'none', label: 'None', desc: '100% static & solid' },
+  { id: 'fade', label: 'Fade In', desc: 'Smooth opacity reveal' },
+  { id: 'fade-in-out', label: 'Fade In + Out', desc: 'Opacity entry & exit' },
+  { id: 'wave', label: 'Wave', desc: 'Typographic wave ripple' },
+  { id: 'kinetic', label: 'Kinetic', desc: 'Modern micro-slide entry' },
+  { id: 'scale', label: 'Scale', desc: 'Gentle scale settle' },
+  { id: 'pop', label: 'Pop', desc: 'Snappy micro-pop accent' },
+  { id: 'blur', label: 'Blur In', desc: 'Soft blur to sharp' },
+  { id: 'slide', label: 'Slide', desc: 'Clean directional slide' },
+  { id: 'typewriter', label: 'Typewriter', desc: 'Stepped cadence reveal' },
+  { id: 'bounce', label: 'Bounce', desc: 'Subtle gentle bounce' },
+  { id: 'glow', label: 'Glow', desc: 'Soft luminous bloom' },
+  { id: 'highlight', label: 'Highlight', desc: 'Contrast color sweep' },
+  { id: 'pulse', label: 'Pulse', desc: 'Rhythmic breathing pulse' },
+];
 interface DesignPageProps {
   lines: LyricLine[];
   style: StyleConfig;
@@ -401,7 +430,7 @@ export const DesignPage: React.FC<DesignPageProps> = ({
             )}
           </div>
 
-          {/* Section: Text Animation */}
+          {/* Section: Text Animation & Display */}
           <div className="accordion-section">
             <button
               type="button"
@@ -410,255 +439,206 @@ export const DesignPage: React.FC<DesignPageProps> = ({
             >
               <div className="header-left-tag">
                 <Sparkles size={14} />
-                <span>Text Animation</span>
+                <span>Lyrics Animation & Display</span>
               </div>
               {openSections.animation ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </button>
 
             {openSections.animation && (
               <div className="accordion-content">
-                <div className="field-group">
-                  <span className="field-label">Style</span>
-                  <div className="button-group-segment">
-                    <button
-                      type="button"
-                      className={`segment-btn ${motionLayers.textAnimation === 'karaoke' ? 'is-active' : ''}`}
-                      onClick={() => onUpdateMotionLayers({ textAnimation: 'karaoke' })}
-                    >
-                      Karaoke
-                    </button>
-                    <button
-                      type="button"
-                      className={`segment-btn ${motionLayers.textAnimation === 'kinetic' ? 'is-active' : ''}`}
-                      onClick={() => onUpdateMotionLayers({ textAnimation: 'kinetic' })}
-                    >
-                      Kinetic
-                    </button>
-                    <button
-                      type="button"
-                      className={`segment-btn ${motionLayers.textAnimation === 'cinematic' ? 'is-active' : ''}`}
-                      onClick={() => onUpdateMotionLayers({ textAnimation: 'cinematic' })}
-                    >
-                      Cinematic
-                    </button>
-                    <button
-                      type="button"
-                      className={`segment-btn ${motionLayers.textAnimation === 'word-by-word' ? 'is-active' : ''}`}
-                      onClick={() => onUpdateMotionLayers({ textAnimation: 'word-by-word' })}
-                    >
-                      Word by Word
-                    </button>
+                {/* 1. LYRICS TYPE */}
+                <div className="capcut-section-block">
+                  <div className="capcut-section-header">
+                    <span className="capcut-badge capcut-badge-type">1. LYRICS TYPE</span>
+                    <span className="capcut-section-title">Content & Display Behavior</span>
+                  </div>
+                  <p className="capcut-section-desc">
+                    Determines how text is arranged and revealed. Typography remains solid, crisp, and predictable without unwanted dancing.
+                  </p>
+                  <div className="capcut-selector-grid">
+                    {LYRICS_TYPE_OPTIONS.map((opt) => {
+                      const isActive = (motionLayers.lyricsType || 'word-by-word') === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          className={`capcut-chip-btn ${isActive ? 'is-active' : ''}`}
+                          onClick={() => {
+                            onUpdateMotionLayers({
+                              lyricsType: opt.id,
+                              textAnimation: opt.id as any,
+                            });
+                          }}
+                        >
+                          <span className="chip-label">{opt.label}</span>
+                          <span className="chip-desc">{opt.desc}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
-                <div className="field-group">
-                  <div className="slider-label-row">
-                    <span className="field-label">Intensity</span>
-                    <span className="slider-value">{Math.round((motionLayers.textAnimationConfig?.intensity ?? 1) * 100)}%</span>
+                {/* 2. LYRICS EFFECT */}
+                <div className="capcut-section-block" style={{ marginTop: '16px' }}>
+                  <div className="capcut-section-header">
+                    <span className="capcut-badge capcut-badge-effect">2. LYRICS EFFECT</span>
+                    <span className="capcut-section-title">Visual Motion Layer</span>
                   </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="2"
-                    step="0.1"
-                    value={motionLayers.textAnimationConfig?.intensity ?? 1}
-                    onChange={(e) => onUpdateMotionLayers({ textAnimationConfig: { ...motionLayers.textAnimationConfig, intensity: parseFloat(e.target.value) } })}
-                    className="range-slider"
-                  />
+                  <p className="capcut-section-desc">
+                    Visual motion applied on top of Lyrics Type. Choosing &apos;None&apos; keeps typography 100% static and solid.
+                  </p>
+                  <div className="capcut-selector-grid effects-grid">
+                    {LYRICS_EFFECT_OPTIONS.map((opt) => {
+                      const isActive = (motionLayers.lyricsEffect || 'fade') === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          className={`capcut-chip-btn ${isActive ? 'is-active' : ''}`}
+                          onClick={() => {
+                            onUpdateMotionLayers({
+                              lyricsEffect: opt.id,
+                            });
+                          }}
+                        >
+                          <span className="chip-label">{opt.label}</span>
+                          <span className="chip-desc">{opt.desc}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <div className="field-group">
-                  <div className="slider-label-row">
-                    <span className="field-label">Enter Duration (ms)</span>
-                    <span className="slider-value">{motionLayers.textAnimationConfig?.enterDuration ?? 300}ms</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="100"
-                    max="1000"
-                    step="50"
-                    value={motionLayers.textAnimationConfig?.enterDuration ?? 300}
-                    onChange={(e) => onUpdateMotionLayers({ textAnimationConfig: { ...motionLayers.textAnimationConfig, enterDuration: parseInt(e.target.value) } })}
-                    className="range-slider"
-                  />
-                </div>
-
-                <div className="field-group">
-                  <div className="slider-label-row">
-                    <span className="field-label">Exit Duration (ms)</span>
-                    <span className="slider-value">{motionLayers.textAnimationConfig?.exitDuration ?? 250}ms</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="100"
-                    max="1000"
-                    step="50"
-                    value={motionLayers.textAnimationConfig?.exitDuration ?? 250}
-                    onChange={(e) => onUpdateMotionLayers({ textAnimationConfig: { ...motionLayers.textAnimationConfig, exitDuration: parseInt(e.target.value) } })}
-                    className="range-slider"
-                  />
-                </div>
-
-                <div className="accordion-section" style={{ marginTop: '1rem', border: '1px solid var(--border-subtle)', borderRadius: '6px' }}>
-                  <button
-                    type="button"
-                    className="accordion-header"
-                    style={{ padding: '8px 12px', background: 'transparent' }}
-                    onClick={() => toggleSection('animationAdvanced')}
-                  >
-                    <div className="header-left-tag">
-                      <span>Advanced</span>
+                {/* 3. EFFECT CONTROLS */}
+                <div className="capcut-section-block" style={{ marginTop: '16px' }}>
+                  {(motionLayers.lyricsEffect || 'fade') === 'none' ? (
+                    <div className="static-typography-banner">
+                      <div className="static-banner-title">Solid Typography Active</div>
+                      <div className="static-banner-text">
+                        No motion effect applied. Typography is rendered completely static, crisp, and locked in place with zero unwanted movement.
+                      </div>
                     </div>
-                    {openSections.animationAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  </button>
+                  ) : (
+                    <div className="effect-controls-panel">
+                      <div className="field-group">
+                        <div className="slider-label-row">
+                          <span className="field-label">Duration</span>
+                          <span className="slider-value">{motionLayers.lyricsEffectConfig?.duration ?? 200}ms</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="80"
+                          max="800"
+                          step="20"
+                          value={motionLayers.lyricsEffectConfig?.duration ?? 200}
+                          onChange={(e) =>
+                            onUpdateMotionLayers({
+                              lyricsEffectConfig: {
+                                ...motionLayers.lyricsEffectConfig,
+                                duration: parseInt(e.target.value),
+                              },
+                            })
+                          }
+                          className="range-slider"
+                        />
+                      </div>
 
-                  {openSections.animationAdvanced && (
-                    <div className="accordion-content" style={{ paddingTop: 0, paddingBottom: '12px' }}>
-                      
-                      {motionLayers.textAnimation === 'karaoke' && (
-                        <>
-                          <div className="field-group">
-                            <div className="slider-label-row">
-                              <span className="field-label">Highlight Intensity</span>
-                              <span className="slider-value">{Math.round((motionLayers.textAnimationConfig?.highlightIntensity ?? 1) * 100)}%</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="0"
-                              max="2"
-                              step="0.1"
-                              value={motionLayers.textAnimationConfig?.highlightIntensity ?? 1}
-                              onChange={(e) => onUpdateMotionLayers({ textAnimationConfig: { ...motionLayers.textAnimationConfig, highlightIntensity: parseFloat(e.target.value) } })}
-                              className="range-slider"
-                            />
+                      <div className="field-group">
+                        <div className="slider-label-row">
+                          <span className="field-label">Intensity</span>
+                          <span className="slider-value">{Math.round((motionLayers.lyricsEffectConfig?.intensity ?? 1.0) * 100)}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="2"
+                          step="0.1"
+                          value={motionLayers.lyricsEffectConfig?.intensity ?? 1.0}
+                          onChange={(e) =>
+                            onUpdateMotionLayers({
+                              lyricsEffectConfig: {
+                                ...motionLayers.lyricsEffectConfig,
+                                intensity: parseFloat(e.target.value),
+                              },
+                            })
+                          }
+                          className="range-slider"
+                        />
+                      </div>
+
+                      <div className="field-group">
+                        <div className="slider-label-row">
+                          <span className="field-label">Unit Stagger</span>
+                          <span className="slider-value">{motionLayers.lyricsEffectConfig?.stagger ?? 40}ms</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="150"
+                          step="10"
+                          value={motionLayers.lyricsEffectConfig?.stagger ?? 40}
+                          onChange={(e) =>
+                            onUpdateMotionLayers({
+                              lyricsEffectConfig: {
+                                ...motionLayers.lyricsEffectConfig,
+                                stagger: parseInt(e.target.value),
+                              },
+                            })
+                          }
+                          className="range-slider"
+                        />
+                      </div>
+
+                      {motionLayers.lyricsEffect === 'slide' && (
+                        <div className="field-group">
+                          <span className="field-label">Direction</span>
+                          <div className="button-group-segment" style={{ marginTop: '4px' }}>
+                            {(['up', 'down', 'left', 'right'] as const).map((dir) => (
+                              <button
+                                key={dir}
+                                type="button"
+                                className={`segment-btn ${(motionLayers.lyricsEffectConfig?.direction || 'up') === dir ? 'is-active' : ''}`}
+                                onClick={() =>
+                                  onUpdateMotionLayers({
+                                    lyricsEffectConfig: {
+                                      ...motionLayers.lyricsEffectConfig,
+                                      direction: dir,
+                                    },
+                                  })
+                                }
+                              >
+                                {dir.toUpperCase()}
+                              </button>
+                            ))}
                           </div>
-                          <div className="field-group">
-                            <div className="slider-label-row">
-                              <span className="field-label">Active Word Scale</span>
-                              <span className="slider-value">{Math.round((motionLayers.textAnimationConfig?.activeWordScale ?? 1.04) * 100)}%</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="1"
-                              max="1.5"
-                              step="0.01"
-                              value={motionLayers.textAnimationConfig?.activeWordScale ?? 1.04}
-                              onChange={(e) => onUpdateMotionLayers({ textAnimationConfig: { ...motionLayers.textAnimationConfig, activeWordScale: parseFloat(e.target.value) } })}
-                              className="range-slider"
-                            />
-                          </div>
-                        </>
+                        </div>
                       )}
 
-                      {motionLayers.textAnimation === 'kinetic' && (
-                        <>
-                          <div className="field-group">
-                            <div className="slider-label-row">
-                              <span className="field-label">Word Stagger</span>
-                              <span className="slider-value">{Math.round((motionLayers.textAnimationConfig?.wordStagger ?? 0.05) * 1000)}ms</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="0"
-                              max="0.2"
-                              step="0.01"
-                              value={motionLayers.textAnimationConfig?.wordStagger ?? 0.05}
-                              onChange={(e) => onUpdateMotionLayers({ textAnimationConfig: { ...motionLayers.textAnimationConfig, wordStagger: parseFloat(e.target.value) } })}
-                              className="range-slider"
-                            />
-                          </div>
-                          <div className="field-group">
-                            <div className="slider-label-row">
-                              <span className="field-label">Active Word Scale</span>
-                              <span className="slider-value">{Math.round((motionLayers.textAnimationConfig?.activeWordScale ?? 1.1) * 100)}%</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="1"
-                              max="1.5"
-                              step="0.01"
-                              value={motionLayers.textAnimationConfig?.activeWordScale ?? 1.1}
-                              onChange={(e) => onUpdateMotionLayers({ textAnimationConfig: { ...motionLayers.textAnimationConfig, activeWordScale: parseFloat(e.target.value) } })}
-                              className="range-slider"
-                            />
-                          </div>
-                        </>
-                      )}
-
-                      {motionLayers.textAnimation === 'cinematic' && (
-                        <>
-                          <div className="field-group">
-                            <div className="slider-label-row">
-                              <span className="field-label">Blur Amount</span>
-                              <span className="slider-value">{Math.round((motionLayers.textAnimationConfig?.blurAmount ?? 4))}px</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="0"
-                              max="20"
-                              step="1"
-                              value={motionLayers.textAnimationConfig?.blurAmount ?? 4}
-                              onChange={(e) => onUpdateMotionLayers({ textAnimationConfig: { ...motionLayers.textAnimationConfig, blurAmount: parseInt(e.target.value) } })}
-                              className="range-slider"
-                            />
-                          </div>
-                          <div className="field-group">
-                            <div className="slider-label-row">
-                              <span className="field-label">Vertical Movement</span>
-                              <span className="slider-value">{Math.round((motionLayers.textAnimationConfig?.verticalMovement ?? 10))}px</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="0"
-                              max="50"
-                              step="1"
-                              value={motionLayers.textAnimationConfig?.verticalMovement ?? 10}
-                              onChange={(e) => onUpdateMotionLayers({ textAnimationConfig: { ...motionLayers.textAnimationConfig, verticalMovement: parseInt(e.target.value) } })}
-                              className="range-slider"
-                            />
-                          </div>
-                        </>
-                      )}
-
-                      {motionLayers.textAnimation === 'word-by-word' && (
-                        <>
-                          <div className="field-group">
-                            <div className="slider-label-row">
-                              <span className="field-label">Word Transition Speed</span>
-                              <span className="slider-value">{motionLayers.textAnimationConfig?.enterDuration ?? 210}ms</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="150"
-                              max="350"
-                              step="10"
-                              value={motionLayers.textAnimationConfig?.enterDuration ?? 210}
-                              onChange={(e) => onUpdateMotionLayers({ textAnimationConfig: { ...motionLayers.textAnimationConfig, enterDuration: parseInt(e.target.value) } })}
-                              className="range-slider"
-                            />
-                          </div>
-                          <div className="field-group">
-                            <div className="slider-label-row">
-                              <span className="field-label">Active Word Scale</span>
-                              <span className="slider-value">{Math.round((motionLayers.textAnimationConfig?.activeWordScale ?? 1.03) * 100)}%</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="1.0"
-                              max="1.15"
-                              step="0.01"
-                              value={motionLayers.textAnimationConfig?.activeWordScale ?? 1.03}
-                              onChange={(e) => onUpdateMotionLayers({ textAnimationConfig: { ...motionLayers.textAnimationConfig, activeWordScale: parseFloat(e.target.value) } })}
-                              className="range-slider"
-                            />
-                          </div>
-                        </>
-                      )}
-                      
+                      <div className="field-group">
+                        <span className="field-label">Easing</span>
+                        <div className="button-group-segment" style={{ marginTop: '4px' }}>
+                          {(['ease-out', 'ease-in-out', 'linear', 'spring'] as const).map((ea) => (
+                            <button
+                              key={ea}
+                              type="button"
+                              className={`segment-btn ${(motionLayers.lyricsEffectConfig?.easing || 'ease-out') === ea ? 'is-active' : ''}`}
+                              onClick={() =>
+                                onUpdateMotionLayers({
+                                  lyricsEffectConfig: {
+                                    ...motionLayers.lyricsEffectConfig,
+                                    easing: ea,
+                                  },
+                                })
+                              }
+                            >
+                              {ea === 'ease-out' ? 'Ease Out' : ea === 'ease-in-out' ? 'In-Out' : ea === 'spring' ? 'Spring' : 'Linear'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
-
               </div>
             )}
           </div>
