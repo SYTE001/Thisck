@@ -3,6 +3,7 @@ import type { TextAnimationPreset } from '../lib/render/text-animation';
 import type { RainOverlayConfig } from '../lib/layers/rain-overlay';
 import type { WatermarkConfig } from '../lib/layers/watermark';
 import type { VideoTransitionsConfig } from '../lib/layers/video-transitions';
+import type { ArrangeSettings, LyricsViewMode } from '../lib/lyrics/auto-arrange';
 
 export type ActiveTab = 'projects' | 'lyrics' | 'timeline' | 'design' | 'preview' | 'export' | 'settings';
 
@@ -108,7 +109,36 @@ export interface ProjectState {
   name: string;
   updatedAt: string;
   track: TrackMetadata;
+
+  /**
+   * The IMMUTABLE source of truth: the raw LRC as imported, with multi-timestamp
+   * expansion already applied once. Auto Arrange never mutates this array.
+   * `lines` below is kept as the backward-compatible alias for it.
+   */
+  originalLines: LyricLine[];
+
+  /**
+   * Output of the Auto Arrange stage (Wrap Only | Smart Split | Audio Sync).
+   * Optional and absent in older project files: when missing, the app derives it
+   * from originalLines and the current arrangeSettings.
+   */
+  processedLines?: LyricLine[];
+
+  /** Auto Arrange configuration. Optional for backward compatibility. */
+  arrangeSettings?: ArrangeSettings;
+
+  /**
+   * Which list is currently shown. Instant and non-destructive: switching only
+   * changes the resolution point, never the stored data.
+   */
+  viewMode?: LyricsViewMode;
+
+  /**
+   * Backward-compatible alias. Always mirrors `originalLines` on save; on load,
+   * an old file's `lines` populates `originalLines`.
+   */
   lines: LyricLine[];
+
   style: StyleConfig;
   exportSettings: ExportSettings;
   timingSource: TimingSource;

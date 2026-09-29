@@ -111,28 +111,35 @@ export class TextMeasurementCache {
 /**
  * Procedural noise canvas cache.
  * PRD Section 9: Static layers must not be regenerated every frame.
+ * PRD Section 11: Grain must be DETERMINISTIC. The same project seed must
+ * produce the same grain, so generation is seeded instead of using Math.random().
  */
+import { mulberry32 } from './determinism';
+
 let cachedNoiseCanvas: HTMLCanvasElement | null = null;
 let cachedNoiseWidth = 0;
 let cachedNoiseHeight = 0;
+let cachedNoiseSeed = -1;
 
-export function getNoiseCanvas(width = 512, height = 512): HTMLCanvasElement {
-  if (
-    cachedNoiseCanvas &&
-    cachedNoiseWidth === width &&
-    cachedNoiseHeight === height
-  ) {
-    return cachedNoiseCanvas;
-  }
+/**
+ * Build a fresh seeded grain canvas. Exposed so callers/tests can generate a
+ * deterministic texture without touching the module-level cache.
+ */
+export function createSeededNoiseCanvas(
+  seed: number,
+  width = 512,
+  height = 512
+): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
   if (ctx) {
+    const rand = mulberry32(seed);
     const imgData = ctx.createImageData(width, height);
     const data = imgData.data;
     for (let i = 0; i < data.length; i += 4) {
-      const v = Math.random() * 255;
+      const v = rand() * 255;
       data[i] = v;
       data[i + 1] = v;
       data[i + 2] = v;
@@ -140,14 +147,29 @@ export function getNoiseCanvas(width = 512, height = 512): HTMLCanvasElement {
     }
     ctx.putImageData(imgData, 0, 0);
   }
+  return canvas;
+}
+
+export function getNoiseCanvas(seed = 42, width = 512, height = 512): HTMLCanvasElement {
+  if (
+    cachedNoiseCanvas &&
+    cachedNoiseWidth === width &&
+    cachedNoiseHeight === height &&
+    cachedNoiseSeed === seed
+  ) {
+    return cachedNoiseCanvas;
+  }
+  const canvas = createSeededNoiseCanvas(seed, width, height);
   cachedNoiseCanvas = canvas;
   cachedNoiseWidth = width;
   cachedNoiseHeight = height;
+  cachedNoiseSeed = seed;
   return canvas;
 }
 
 export function invalidateNoiseCanvas(): void {
   cachedNoiseCanvas = null;
+  cachedNoiseSeed = -1;
 }
 
 /**

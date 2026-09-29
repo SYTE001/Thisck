@@ -25,6 +25,8 @@ interface NavigationProps {
   timingSource: TimingSource;
   validation: QualityValidationResult;
   hasAudio: boolean;
+  /** PRD Section 18: saved / unsaved indicator. */
+  saveStatus?: 'saved' | 'saving' | 'unsaved';
   onSaveProject: () => void;
   onLoadProject: () => void;
 }
@@ -37,6 +39,7 @@ export const Navigation: React.FC<NavigationProps> = ({
   timingSource,
   validation,
   hasAudio,
+  saveStatus = 'saved',
   onSaveProject,
   onLoadProject,
 }) => {
@@ -44,6 +47,8 @@ export const Navigation: React.FC<NavigationProps> = ({
     switch (timingSource) {
       case 'SOURCE_ENHANCED_LRC':
         return { label: 'Word-Level Sync', icon: <CheckCircle2 size={12} />, status: 'exact' };
+      case 'SOURCE_SRT':
+        return { label: 'SRT Timed', icon: <CheckCircle2 size={12} />, status: 'exact' };
       case 'SOURCE_LRC':
         return { label: 'LRC Timed', icon: <CheckCircle2 size={12} />, status: 'exact' };
       case 'SOURCE_SYNC_PROVIDER':
@@ -128,6 +133,19 @@ export const Navigation: React.FC<NavigationProps> = ({
         )}
 
         <div className="nav-actions">
+          <span
+            className={`nav-save-status status-${saveStatus}`}
+            title={
+              saveStatus === 'unsaved'
+                ? 'You have unsaved changes'
+                : saveStatus === 'saving'
+                  ? 'Saving…'
+                  : 'All changes saved'
+            }
+            aria-live="polite"
+          >
+            {saveStatus === 'unsaved' ? 'Unsaved' : saveStatus === 'saving' ? 'Saving…' : 'Saved'}
+          </span>
           <button
             type="button"
             onClick={onLoadProject}

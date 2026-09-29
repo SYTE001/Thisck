@@ -23,6 +23,9 @@ export function parseTxtLyrics(content: string): ParsedTxtResult {
     resultLines.push({
       id: `txt-line-${idx + 1}`,
       text: trimmed,
+      originalText: trimmed,
+      originalIndex: idx + 1,
+      sourceFormat: 'txt',
       startTime: null, // Strictly null! Never invent fake timing.
       endTime: null,
       source: 'SOURCE_UNKNOWN',

@@ -60,6 +60,10 @@ interface DesignPageProps {
   onRestart: () => void;
   onPrevLine: () => void;
   onNextLine: () => void;
+  playbackSpeed?: number;
+  isMuted?: boolean;
+  onSpeedChange?: (speed: number) => void;
+  onToggleMute?: () => void;
 }
 
 export const DesignPage: React.FC<DesignPageProps> = ({
@@ -82,6 +86,10 @@ export const DesignPage: React.FC<DesignPageProps> = ({
   onRestart,
   onPrevLine,
   onNextLine,
+  playbackSpeed,
+  isMuted,
+  onSpeedChange,
+  onToggleMute,
 }) => {
   // Collapsible accordion sections
   const [openSections, setOpenSections] = useState({
@@ -125,6 +133,10 @@ export const DesignPage: React.FC<DesignPageProps> = ({
             onRestart={onRestart}
             onPrevLine={onPrevLine}
             onNextLine={onNextLine}
+            playbackSpeed={playbackSpeed}
+            isMuted={isMuted}
+            onSpeedChange={onSpeedChange}
+            onToggleMute={onToggleMute}
           />
         </div>
       </div>
@@ -523,14 +535,14 @@ export const DesignPage: React.FC<DesignPageProps> = ({
                       <div className="field-group">
                         <div className="slider-label-row">
                           <span className="field-label">Duration</span>
-                          <span className="slider-value">{motionLayers.lyricsEffectConfig?.duration ?? 200}ms</span>
+                          <span className="slider-value">{motionLayers.lyricsEffectConfig?.duration ?? 400}ms</span>
                         </div>
                         <input
                           type="range"
                           min="80"
                           max="800"
                           step="20"
-                          value={motionLayers.lyricsEffectConfig?.duration ?? 200}
+                          value={motionLayers.lyricsEffectConfig?.duration ?? 400}
                           onChange={(e) =>
                             onUpdateMotionLayers({
                               lyricsEffectConfig: {
@@ -552,7 +564,7 @@ export const DesignPage: React.FC<DesignPageProps> = ({
                           type="range"
                           min="0"
                           max="2"
-                          step="0.1"
+                          step="0.05"
                           value={motionLayers.lyricsEffectConfig?.intensity ?? 1.0}
                           onChange={(e) =>
                             onUpdateMotionLayers({
@@ -564,6 +576,9 @@ export const DesignPage: React.FC<DesignPageProps> = ({
                           }
                           className="range-slider"
                         />
+                        <div className="slider-hint">
+                          Displacement is relative to font size. 100% is already clearly visible, 200% is a strong accent.
+                        </div>
                       </div>
 
                       <div className="field-group">

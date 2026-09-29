@@ -18,6 +18,7 @@ import type { StyleConfig, ActiveTab, MotionLayersConfig } from '../../types/pro
 import { formatSecondsToTimecode } from '../../lib/lyrics/lrc-parser';
 import { getActiveVisualBlockAt } from '../../lib/layout/lyric-chunker';
 import { renderEditorialFrame } from '../../lib/render/canvas-renderer';
+import { createRenderContext } from '../../lib/render/render-context';
 
 interface PreviewPageProps {
   lines: LyricLine[];
@@ -40,6 +41,11 @@ interface PreviewPageProps {
   exportSettings?: any;
   onUpdateExportSettings?: (settings: any) => void;
   motionLayers?: MotionLayersConfig;
+  /** PRD Section 5: playback speed/mute are owned by App's audio clock. */
+  playbackSpeed?: number;
+  isMuted?: boolean;
+  onSpeedChange?: (speed: number) => void;
+  onToggleMute?: () => void;
 }
 
 export const PreviewPage: React.FC<PreviewPageProps> = ({
@@ -63,29 +69,19 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
   exportSettings,
   onUpdateExportSettings,
   motionLayers,
+  playbackSpeed = 1.0,
+  isMuted = false,
+  onSpeedChange,
+  onToggleMute,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
-  const [isMuted, setIsMuted] = useState(false);
   const [showSafeAreas, setShowSafeAreas] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Synchronize audio playback
-  useEffect(() => {
-    if (!audioRef.current) return;
-    audioRef.current.playbackRate = playbackSpeed;
-    if (isPlaying) {
-      if (Math.abs(audioRef.current.currentTime - currentTime) > 0.25) {
-        audioRef.current.currentTime = currentTime;
-      }
-      audioRef.current.play().catch(() => {});
-    } else {
-      audioRef.current.pause();
-    }
-  }, [isPlaying, playbackSpeed, currentTime]);
+  // Audio playback is owned by App's single authoritative audio element
+  // (PRD Section 5). This page only renders the canvas and transport controls.
 
   // Render canvas frame on time change or style change
   useEffect(() => {
@@ -94,18 +90,21 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    renderEditorialFrame(ctx, {
-      width: canvas.width,
-      height: canvas.height,
-      currentTime,
-      lines: _lines,
-      style,
-      visualBlocks,
-      trackTitle,
-      artistName,
-      textAnimationPreset: motionLayers?.textAnimation,
-      textAnimationConfig: motionLayers?.textAnimationConfig,
-    });
+    renderEditorialFrame(
+      ctx,
+      createRenderContext(
+        {
+          lines: _lines,
+          style,
+          visualBlocks,
+          trackTitle,
+          artistName,
+          motion: motionLayers,
+        },
+        currentTime,
+        { width: canvas.width, height: canvas.height, isPreview: true }
+      )
+    );
   }, [_lines, currentTime, style, visualBlocks, trackTitle, artistName, motionLayers]);
 
   // Fullscreen toggle
@@ -123,15 +122,6 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
 
   return (
     <div className="workspace-page preview-page" ref={containerRef}>
-      {audioBlobUrl && (
-        <audio
-          ref={audioRef}
-          src={audioBlobUrl}
-          muted={isMuted}
-          onEnded={() => onPlayPause()}
-        />
-      )}
-
       {/* Main Review Stage */}
       <div className="preview-stage-layout">
         <div className="preview-canvas-wrapper">
@@ -339,7 +329,7 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
                   key={s}
                   type="button"
                   className={`speed-btn ${playbackSpeed === s ? 'is-active' : ''}`}
-                  onClick={() => setPlaybackSpeed(s)}
+                  onClick={() => onSpeedChange?.(s)}
                 >
                   {s}x
                 </button>
@@ -347,14 +337,16 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
             </div>
 
             {/* Mute Toggle */}
-            <button
-              type="button"
-              className={`transport-btn ${isMuted ? 'text-dim' : ''}`}
-              onClick={() => setIsMuted(!isMuted)}
-              title={isMuted ? 'Unmute' : 'Mute'}
-            >
-              {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
-            </button>
+            {audioBlobUrl && (
+              <button
+                type="button"
+                className={`transport-btn ${isMuted ? 'text-dim' : ''}`}
+                onClick={() => onToggleMute?.()}
+                title={isMuted ? 'Unmute' : 'Mute'}
+              >
+                {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+              </button>
+            )}
 
             {/* Safe Area Toggle */}
             <button

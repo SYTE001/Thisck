@@ -20,7 +20,7 @@ interface ProjectsPageProps {
   totalDuration: number;
   hasAudio: boolean;
   onUpdateMetadata: (meta: Partial<TrackMetadata>) => void;
-  onLoadPresetLyrics: (preset: 'lrc' | 'enhanced' | 'txt') => void;
+  onLoadPresetLyrics: (preset: 'lrc' | 'enhanced' | 'srt' | 'txt') => void;
   onLoadProject: () => void;
   onSaveProject: () => void;
   onNewProject: () => void;
@@ -231,6 +231,25 @@ export const ProjectsPage: React.FC<ProjectsPageProps> = ({
           </div>
 
           <div className="demo-list">
+            <div className="demo-item">
+              <div className="demo-info">
+                <h4>Hold You Down — Native SRT Subtitles</h4>
+                <p>Standard SubRip subtitle format with exact millisecond start and end timecodes.</p>
+                <div className="demo-tags">
+                  <span className="tag-pill tag-accent">SRT</span>
+                  <span className="tag-pill">Millisecond Precision</span>
+                  <span className="tag-pill">Auto Smart Split</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => onLoadPresetLyrics('srt')}
+              >
+                Load Preset
+              </button>
+            </div>
+
             <div className="demo-item">
               <div className="demo-info">
                 <h4>Secrets — Standard LRC</h4>

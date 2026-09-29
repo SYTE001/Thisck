@@ -46,13 +46,17 @@ export type EffectEasing = 'ease-out' | 'ease-in-out' | 'linear' | 'spring';
 export type EffectDirection = 'up' | 'down' | 'left' | 'right';
 
 export interface LyricsEffectConfig {
-  /** Animation duration in milliseconds (default: 200ms) */
+  /**
+   * Animation duration in milliseconds (default: 400ms).
+   * Omit it to let each effect pick its own sensible default
+   * (motion/enter effects 350-450ms, pure opacity fades shorter).
+   */
   duration?: number;
   /** Animation delay in milliseconds (default: 0ms) */
   delay?: number;
   /** Easing curve (default: 'ease-out') */
   easing?: EffectEasing;
-  /** Intensity multiplier 0.0 - 2.0 (default: 1.0) */
+  /** Intensity multiplier 0.0 - 2.0 (default: 1.0). 100% is already clearly visible; 200% is strong. */
   intensity?: number;
   /** Direction for directional effects like slide (default: 'up') */
   direction?: EffectDirection;
@@ -63,7 +67,7 @@ export interface LyricsEffectConfig {
 }
 
 export const DEFAULT_LYRICS_EFFECT_CONFIG: Required<LyricsEffectConfig> = {
-  duration: 200,
+  duration: 400,
   delay: 0,
   easing: 'ease-out',
   intensity: 1.0,

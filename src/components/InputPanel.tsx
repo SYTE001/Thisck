@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
 import { Music, Search, Wand2, FileText, Check, AlertCircle } from 'lucide-react';
 import type { LyricLine, TrackMetadata, TimingSource } from '../types/lyrics';
-import { parseLrc } from '../lib/lyrics/lrc-parser';
-import { parseTxtLyrics } from '../lib/lyrics/txt-parser';
-import { parseJsonLyrics } from '../lib/lyrics/json-parser';
+import { importLyricsFile, describeImportError } from '../lib/lyrics/lyric-import';
+import {
+  SUPPORTED_LYRIC_ACCEPT,
+  resolveSourceFormat,
+  describeSourceFormat,
+} from '../lib/lyrics/lyric-format';
 import { LrclibProvider, type LyricsSearchResult } from '../lib/sync/sync-provider';
+import { toast } from '../lib/ui/toast-bus';
 
 interface InputPanelProps {
   track: TrackMetadata;
@@ -17,7 +21,7 @@ interface InputPanelProps {
   onAudioFileSelected: (file: File) => void;
   onUpdateMetadata: (metadata: Partial<TrackMetadata>) => void;
   onRunAudioAlignment: () => void;
-  onLoadPresetLyrics: (preset: 'lrc' | 'enhanced' | 'txt') => void;
+  onLoadPresetLyrics: (preset: 'lrc' | 'enhanced' | 'srt' | 'txt') => void;
 }
 
 export const InputPanel: React.FC<InputPanelProps> = ({
@@ -39,6 +43,8 @@ export const InputPanel: React.FC<InputPanelProps> = ({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [showSearchModal, setShowSearchModal] = useState(false);
 
+  const currentFormat = track.sourceFormat || resolveSourceFormat(lines);
+
   const handleLyricsFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -46,34 +52,15 @@ export const InputPanel: React.FC<InputPanelProps> = ({
     const reader = new FileReader();
     reader.onload = (event) => {
       const content = event.target?.result as string;
-      const ext = file.name.split('.').pop()?.toLowerCase();
-
       try {
-        if (ext === 'json') {
-          const parsed = parseJsonLyrics(content);
-          onLyricsLoaded(
-            parsed.lines,
-            parsed.track,
-            parsed.lines[0]?.startTime !== null ? 'SOURCE_LRC' : 'SOURCE_UNKNOWN'
-          );
-        } else if (ext === 'txt') {
-          const parsed = parseTxtLyrics(content);
-          onLyricsLoaded(parsed.lines, { title: file.name.replace(/\.[^/.]+$/, '') }, 'SOURCE_UNKNOWN');
-        } else {
-          // Default: LRC
-          const parsed = parseLrc(content);
-          onLyricsLoaded(
-            parsed.lines,
-            {
-              title: parsed.metadata.title || file.name.replace(/\.[^/.]+$/, ''),
-              artist: parsed.metadata.artist || '',
-              album: parsed.metadata.album || '',
-            },
-            parsed.timingSource
-          );
-        }
-      } catch (err: any) {
-        alert(`Error parsing lyrics file: ${err.message}`);
+        const result = importLyricsFile(content, file.name);
+        onLyricsLoaded(
+          result.lines,
+          { ...result.metadata, sourceFormat: result.sourceFormat },
+          result.timingSource
+        );
+      } catch (err: unknown) {
+        toast.error('Could not import lyrics.', describeImportError(err, file.name));
       }
     };
     reader.readAsText(file);
@@ -169,12 +156,17 @@ export const InputPanel: React.FC<InputPanelProps> = ({
 
         {/* Lyrics Upload Dropzone */}
         <div className="upload-section">
-          <label className="section-subtitle">Lyrics File (.lrc, .txt, .json)</label>
+          <div className="section-header-row">
+            <label className="section-subtitle">Lyrics File (.lrc, .srt, .txt, .json)</label>
+            <span className="source-format-pill" title={`Format: ${currentFormat.toUpperCase()}`}>
+              {describeSourceFormat(currentFormat)}
+            </span>
+          </div>
           <label className="file-dropzone" htmlFor="lyrics-file-input">
             <input
               id="lyrics-file-input"
               type="file"
-              accept=".lrc,.txt,.json"
+              accept={SUPPORTED_LYRIC_ACCEPT}
               className="visually-hidden"
               onChange={handleLyricsFileUpload}
             />
@@ -256,6 +248,13 @@ export const InputPanel: React.FC<InputPanelProps> = ({
         <div className="demo-presets-section">
           <span className="section-subtitle">Sample Demonstrations</span>
           <div className="demo-button-grid">
+            <button
+              type="button"
+              className="demo-btn"
+              onClick={() => onLoadPresetLyrics('srt')}
+            >
+              Exact SRT Demo
+            </button>
             <button
               type="button"
               className="demo-btn"

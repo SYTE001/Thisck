@@ -8,8 +8,9 @@ import type { LyricsAnimationState } from './animationConfig';
 import type { MotionFrameState } from '../../motion/adaptive-motion';
 import type { TextAnimationPreset } from '../text-animation';
 import type { LyricsType, LyricsEffect, LyricsEffectConfig } from './types';
+import { DEFAULT_LYRICS_EFFECT_CONFIG } from './types';
 import { resolveLyricsTypeState } from './lyricsTypes';
-import { applyLyricsEffect } from './lyricsEffects';
+import { applyLyricsEffect, FALLBACK_FONT_SIZE } from './lyricsEffects';
 
 /**
  * Resolves the complete animation and layout state for any (LyricsType + LyricsEffect) combination.
@@ -21,18 +22,21 @@ export function getLyricsAnimationState(
   block: VisualLyricBlock,
   currentTime: number,
   config?: LyricsEffectConfig,
-  accentColor: string = '#E6C280'
+  accentColor: string = '#E6C280',
+  fontSize: number = FALLBACK_FONT_SIZE
 ): LyricsAnimationState {
   // Layer 1: Resolve content and display behavior
   const typeResult = resolveLyricsTypeState(lyricsType, block, currentTime, accentColor);
 
   // Layer 2: Resolve visual motion and transforms
+  // `fontSize` is the FINAL rendered font size in px; all displacements are em-relative.
   const effectResult = applyLyricsEffect(
     lyricsEffect,
     typeResult.units,
     block,
     currentTime,
-    config
+    config,
+    fontSize
   );
 
   return {
@@ -117,7 +121,7 @@ export function getAnimationState(
   }
 
   const effectConfig: LyricsEffectConfig = {
-    duration: config?.enterDuration ?? 200,
+    duration: config?.enterDuration ?? DEFAULT_LYRICS_EFFECT_CONFIG.duration,
     intensity: config?.intensity ?? 1.0,
     easing: config?.easing ?? 'ease-out',
     direction: config?.direction === 'down' ? 'down' : 'up',
@@ -130,6 +134,7 @@ export function getAnimationState(
     block,
     currentTime,
     effectConfig,
-    '#E6C280'
+    '#E6C280',
+    config?.fontSize ?? FALLBACK_FONT_SIZE
   );
 }

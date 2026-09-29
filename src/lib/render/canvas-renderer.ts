@@ -5,7 +5,10 @@ import type { LyricsType, LyricsEffect, LyricsEffectConfig } from './lyricsAnima
 import { chunkAllLyricLines, getActiveVisualBlockAt } from '../layout/lyric-chunker';
 import { TextMeasurementCache, getNoiseCanvas } from './layer-cache';
 import { applyTextAnimationTransform } from './text-animation';
+import { resolveAnimationConfig, type LegacyTextAnimationConfig } from './animation-resolver';
+import { layoutLyricBlock, invalidateLayoutCache } from './typography-layout';
 import { getLyricsAnimationState } from './lyricsAnimation/animationEngine';
+import { getWaveOffsetY } from './lyricsAnimation/lyricsEffects';
 import { getDistributedWords } from './lyricsAnimation/presets/wordByWord';
 
 export interface RenderOptions {
@@ -27,7 +30,7 @@ export interface RenderOptions {
   /** Text animation preset (legacy compatibility) */
   textAnimationPreset?: TextAnimationPreset;
   /** Text animation config (legacy compatibility) */
-  textAnimationConfig?: any;
+  textAnimationConfig?: LegacyTextAnimationConfig;
   /**
    * Whether this is a preview render.
    * PRD Section 7: preview can be lower quality than export.
@@ -52,6 +55,8 @@ export function invalidateTextCache(fontFamily?: string): void {
   } else {
     textMeasurementCache.invalidate();
   }
+  // Wrapped layout depends on font metrics, so drop it too.
+  invalidateLayoutCache();
 }
 
 /**
@@ -154,7 +159,7 @@ export function renderEditorialFrame(
   // 2. Paper Grain / Noise Texture
   // PRD Section 9: Noise canvas is cached; not regenerated every frame.
   if (style.grainIntensity > 0) {
-    const noise = getNoiseCanvas();
+    const noise = getNoiseCanvas(projectSeed);
     ctx.save();
     ctx.globalAlpha = style.grainIntensity;
     ctx.globalCompositeOperation = 'overlay';
@@ -185,51 +190,30 @@ export function renderEditorialFrame(
   }
 
   // 4. Safe Text Margins & Safe Text Width (Section 17: Max 68-72% of width)
-  const maxSafeTextWidth = width * 0.70; // 756px at 1080w
+  // NOTE: the actual fit-to-width math lives in layoutLyricBlock() so the final font
+  // size is known before the lyrics effect is resolved (em-relative displacements).
   const baseFontSize = Math.round(width * 0.082 * style.fontSizeRatio); // ~88px at 1080w
 
   // 5. Draw CURRENT ACTIVE LYRIC ONLY
   // PRIORITY 1: NO GHOSTING. Zero previous-lyric shadow, blur, opacity, or trail.
   if (activeBlock) {
-    // Resolve effective Lyrics Type and Lyrics Effect
-    let effType: LyricsType = options.lyricsType || 'word-by-word';
-    let effEffect: LyricsEffect = options.lyricsEffect || 'none';
-    let effConfig: LyricsEffectConfig | undefined = options.lyricsEffectConfig;
+    // Resolve the canonical (type, effect, config) at the boundary. The renderer
+    // itself never inspects legacy preset names (PRD Section 9).
+    const canonical = resolveAnimationConfig({
+      lyricsType: options.lyricsType,
+      lyricsEffect: options.lyricsEffect,
+      lyricsEffectConfig: options.lyricsEffectConfig,
+      textAnimationPreset,
+      textAnimationConfig,
+    });
+    const effType: LyricsType = canonical.type;
+    const effEffect: LyricsEffect = canonical.effect;
+    const effConfig: LyricsEffectConfig | undefined = canonical.config;
 
-    if (!options.lyricsType || !options.lyricsEffect) {
-      const preset = textAnimationPreset || 'karaoke';
-      if (preset === 'word-by-word') {
-        effType = options.lyricsType || 'word-by-word';
-        effEffect = options.lyricsEffect || 'fade';
-      } else if (preset === 'karaoke') {
-        effType = options.lyricsType || 'karaoke';
-        effEffect = options.lyricsEffect || 'none';
-      } else if (preset === 'kinetic') {
-        effType = options.lyricsType || 'word-by-word';
-        effEffect = options.lyricsEffect || 'kinetic';
-      } else if (preset === 'cinematic' || preset === 'blur-to-sharp') {
-        effType = options.lyricsType || 'single-line';
-        effEffect = options.lyricsEffect || 'blur';
-      } else if (preset === 'fade') {
-        effType = options.lyricsType || 'single-line';
-        effEffect = options.lyricsEffect || 'fade';
-      } else if (preset === 'slide-up' || preset === 'slide-down') {
-        effType = options.lyricsType || 'single-line';
-        effEffect = options.lyricsEffect || 'slide';
-      } else if (preset === 'scale-in') {
-        effType = options.lyricsType || 'single-line';
-        effEffect = options.lyricsEffect || 'scale';
-      }
-    }
-
-    if (!effConfig && textAnimationConfig) {
-      effConfig = {
-        duration: textAnimationConfig.enterDuration ?? 200,
-        intensity: textAnimationConfig.intensity ?? 1.0,
-        direction: 'up',
-        stagger: textAnimationConfig.wordStagger ? textAnimationConfig.wordStagger * 1000 : 40,
-      };
-    }
+    // Resolve the FINAL font size first: all lyrics effect displacements are em-relative,
+    // so the effect engine needs the real rendered font size (preview and export identical).
+    const fontLayout = layoutLyricBlock(ctx, activeBlock, style, width, textMeasurementCache);
+    const { finalFontSize, isSupporting, lineList, finalFontSpec } = fontLayout;
 
     const lyricsAnimState = getLyricsAnimationState(
       effType,
@@ -237,7 +221,8 @@ export function renderEditorialFrame(
       activeBlock,
       currentTime,
       effConfig,
-      style.accentColor || '#E6C280'
+      style.accentColor || '#E6C280',
+      finalFontSize
     );
     const lineState = lyricsAnimState.line;
     const animState = {
@@ -252,17 +237,9 @@ export function renderEditorialFrame(
     if (animState.opacity > 0) {
       ctx.save();
 
-      const dynamicFontSize = Math.round(baseFontSize * activeBlock.fontSizeMultiplier);
-      const isSupporting = activeBlock.type === 'SUPPORTING';
-      let finalFontSize = isSupporting ? Math.floor(dynamicFontSize * 0.75) : dynamicFontSize;
-
-      // PRD Section 10: Use measurement cache for text layout
-      const fontSpec = `${isSupporting ? 'italic 400' : '600'} ${finalFontSize}px "${style.fontFamily}", serif`;
-      ctx.font = fontSpec;
+      ctx.font = finalFontSpec;
       ctx.fillStyle = textColor;
       ctx.textBaseline = 'middle';
-
-      let lineList = activeBlock.lines;
 
       // Base vertical position (centered) + animation translateY
       const centerY = height * 0.48 + animState.translateY;
@@ -286,60 +263,6 @@ export function renderEditorialFrame(
         return w;
       };
 
-      const getLongest = (ls: string[]) =>
-        ls.reduce((max, line) => {
-          ctx.font = fontSpec;
-          return Math.max(max, measureLine(line, fontSpec));
-        }, 0);
-
-      let longestWidth = getLongest(lineList);
-      let fitScale = maxSafeTextWidth / longestWidth;
-
-      if (fitScale < 1.0) {
-        const minSize = isSupporting ? 48 : 64;
-        const idealSize = Math.floor(finalFontSize * fitScale);
-
-        if (idealSize < minSize) {
-          finalFontSize = minSize;
-          // Text is too wide at minSize, so we must rewrap dynamically
-          const allWords = activeBlock.text.split(' ');
-          lineList = [];
-          let currentLine = '';
-          const wrapFont = `${isSupporting ? 'italic 400' : '600'} ${finalFontSize}px "${style.fontFamily}", serif`;
-          ctx.font = wrapFont;
-
-          for (const word of allWords) {
-            const testLine = currentLine ? `${currentLine} ${word}` : word;
-            if (measureLine(testLine, wrapFont) > maxSafeTextWidth) {
-              if (currentLine) {
-                lineList.push(currentLine);
-                currentLine = word;
-              } else {
-                lineList.push(word);
-                currentLine = '';
-              }
-            } else {
-              currentLine = testLine;
-            }
-          }
-          if (currentLine) lineList.push(currentLine);
-
-          // Re-check just in case a single word exceeds max width
-          const wrapFontSpec = `${isSupporting ? 'italic 400' : '600'} ${finalFontSize}px "${style.fontFamily}", serif`;
-          ctx.font = wrapFontSpec;
-          longestWidth = getLongest(lineList);
-          fitScale = maxSafeTextWidth / longestWidth;
-          if (fitScale < 1.0) {
-            finalFontSize = Math.floor(finalFontSize * fitScale);
-          }
-        } else {
-          finalFontSize = idealSize;
-        }
-      }
-
-      const finalFontSpec = `${isSupporting ? 'italic 400' : '600'} ${finalFontSize}px "${style.fontFamily}", serif`;
-      ctx.font = finalFontSpec;
-
       if (isSupporting) {
         ctx.globalAlpha = animState.opacity * 0.75;
       }
@@ -356,6 +279,25 @@ export function renderEditorialFrame(
         lyricsAnimState.words &&
         lyricsAnimState.words.length > 0
       );
+
+      // Per-character wave ripple.
+      // The engine applies the wave per WORD; for 'word-by-word' we refine it to a true
+      // character ripple by drawing each glyph at its own vertical offset.
+      // Base layout is untouched: glyphs keep their exact horizontal positions and the
+      // whole block is drawn from the same word-level x cursor as any other effect.
+      const effectIntensity = effConfig?.intensity ?? 1.0;
+      const useCharWave = effEffect === 'wave' && hasWordAnimation;
+
+      // Stable global character index per word, so the phase travels left to right
+      // across the entire line regardless of reveal order.
+      const charStartIndex: number[] = [];
+      if (useCharWave) {
+        let acc = 0;
+        for (const w of effectiveWords) {
+          charStartIndex.push(acc);
+          acc += Array.from(w.text).length;
+        }
+      }
 
       let wordCursor = 0;
       const renderLyricLine = (lineText: string, lineY: number, shiftX: number = 0) => {
@@ -432,7 +374,34 @@ export function renderEditorialFrame(
             }
 
             ctx.textAlign = 'left';
-            ctx.fillText(wordItem.text, drawX, drawY);
+            if (useCharWave && wordItem.text.length > 0) {
+              // Character-level ripple: each glyph keeps its base x position and
+              // only its vertical offset changes, so the layout never shifts.
+              const chars = Array.from(wordItem.text);
+              const charWidths = chars.map((c) => measureLine(c, finalFontSpec));
+              const measuredSum = charWidths.reduce((a, b) => a + b, 0);
+              // Normalize glyph advances so the word occupies exactly the same
+              // width as the word-level layout (kerning/shaping tolerance).
+              const widthRatio = measuredSum > 0 ? wordWidths[wRelIdx] / measuredSum : 0;
+
+              const charBase = charStartIndex[globalWordIdx] ?? 0;
+              let charX = drawX;
+
+              chars.forEach((ch, cIdx) => {
+                const charW = charWidths[cIdx] * widthRatio;
+                const charOffsetY = getWaveOffsetY(
+                  charBase + cIdx,
+                  currentTime,
+                  activeBlock.startTime,
+                  finalFontSize,
+                  effectIntensity
+                );
+                ctx.fillText(ch, charX, lineY + charOffsetY);
+                charX += charW;
+              });
+            } else {
+              ctx.fillText(wordItem.text, drawX, drawY);
+            }
             ctx.restore();
           }
 

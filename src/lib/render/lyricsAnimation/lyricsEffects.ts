@@ -11,6 +11,9 @@
  * - 'none' must produce strictly static, solid, stable, crisp typography with ZERO unwanted movement.
  * - Predictable timeline system with sensible defaults: duration, delay, easing, intensity, direction, stagger.
  * - Readability has priority over animation.
+ * - ALL displacements are expressed as EM RATIOS relative to the rendered font size,
+ *   so an effect looks identical in scale on a 1080x1920 export and on a small preview,
+ *   and it stays clearly visible regardless of the chosen font size.
  */
 
 import type { VisualLyricBlock } from '../../../types/lyrics';
@@ -51,6 +54,60 @@ function applyEasing(t: number, easing: string = 'ease-out'): number {
 }
 
 /**
+ * Em ratios: every displacement is `ratio * fontSize * intensity`.
+ * Chosen so that at a typical 1080x1920 render (font ~88px) a 100% intensity
+ * effect is clearly visible, while 200% is a strong accent.
+ */
+const EM = {
+  wave: 0.16,
+  kinetic: 0.18,
+  slide: 0.26,
+  bounce: 0.22,
+  blur: 0.14,
+  glow: 0.22,
+} as const;
+
+/** Wave oscillation speed in Hz (1.2 - 1.6 Hz reads as a calm travelling ripple). */
+export const WAVE_FREQUENCY_HZ = 1.4;
+/** Phase offset per unit (radians) so the wave visibly travels left to right. */
+export const WAVE_PHASE_STEP = 0.6;
+/** Fallback font size (px) used when the caller does not provide one. */
+export const FALLBACK_FONT_SIZE = 88;
+
+/**
+ * Per-effect default duration (ms).
+ * Enter/motion effects get 350-450ms so the movement is actually perceivable;
+ * pure opacity fades stay short on purpose.
+ */
+const EFFECT_DEFAULT_DURATION: Partial<Record<LyricsEffect, number>> = {
+  fade: 220,
+  'fade-in-out': 260,
+  typewriter: 320,
+  wave: 400,
+  glow: 400,
+  highlight: 400,
+  pulse: 400,
+};
+
+/**
+ * Vertical offset of the travelling wave for a given unit/character index.
+ * Shared by the effect engine (word level) and the canvas renderer (character level)
+ * so both layers stay perfectly in sync.
+ */
+export function getWaveOffsetY(
+  unitIndex: number,
+  currentTime: number,
+  blockStartTime: number,
+  fontSize: number = FALLBACK_FONT_SIZE,
+  intensity: number = 1
+): number {
+  const em = EM.wave * (fontSize > 0 ? fontSize : FALLBACK_FONT_SIZE);
+  const omega = Math.PI * 2 * WAVE_FREQUENCY_HZ;
+  const phase = (currentTime - blockStartTime) * omega + unitIndex * WAVE_PHASE_STEP;
+  return Math.sin(phase) * em * Math.max(0, Math.min(2, intensity));
+}
+
+/**
  * Applies visual motion effect to the resolved units of a lyric block.
  * When effect is 'none', returns completely static units with 0 transform and full stability.
  */
@@ -59,7 +116,8 @@ export function applyLyricsEffect(
   units: UnitAnimationState[],
   block: VisualLyricBlock,
   currentTime: number,
-  config: LyricsEffectConfig = {}
+  config: LyricsEffectConfig = {},
+  fontSize: number = FALLBACK_FONT_SIZE
 ): {
   units: UnitAnimationState[];
   lineTransform: {
@@ -72,9 +130,14 @@ export function applyLyricsEffect(
   };
 } {
   const cfg = { ...DEFAULT_LYRICS_EFFECT_CONFIG, ...config };
-  const durationSec = Math.max(0.05, cfg.duration / 1000);
+  // Effect-specific default duration, overridable by the explicit config value.
+  const durationMs = config.duration ?? EFFECT_DEFAULT_DURATION[effect] ?? DEFAULT_LYRICS_EFFECT_CONFIG.duration;
+  const durationSec = Math.max(0.05, durationMs / 1000);
   const intensity = Math.max(0, Math.min(2.0, cfg.intensity));
   const staggerSec = (cfg.stagger || 0) / 1000;
+
+  // Em-relative unit: 1em == the rendered font size in pixels.
+  const emPx = fontSize > 0 ? fontSize : FALLBACK_FONT_SIZE;
 
   // Base line transform (neutral)
   const lineTransform = {
@@ -154,17 +217,18 @@ export function applyLyricsEffect(
       }
 
       case 'wave': {
-        // Subtle rhythmic typographic wave (2-3px)
-        const wavePhase = (currentTime - block.startTime) * 3.5 + index * 0.55;
-        finalTranslateY = Math.sin(wavePhase) * 3.0 * intensity;
-        finalOpacity = unit.opacity * Math.min(1, eased + 0.3);
+        // Travelling typographic ripple: continuous while the block is active,
+        // phase-shifted per unit so it clearly propagates left to right.
+        // Opacity is intentionally untouched by the wave.
+        finalTranslateY = getWaveOffsetY(index, currentTime, block.startTime, emPx, intensity);
+        finalOpacity = unit.opacity;
         break;
       }
 
       case 'kinetic': {
-        // Crisp modern kinetic micro-slide (4-5px with swift ease-out decelerate)
+        // Crisp modern kinetic micro-slide with swift ease-out decelerate
         finalOpacity = unit.opacity * eased;
-        finalTranslateY = (1 - eased) * 5.0 * intensity;
+        finalTranslateY = (1 - eased) * EM.kinetic * emPx * intensity;
         break;
       }
 
@@ -186,7 +250,7 @@ export function applyLyricsEffect(
       case 'blur': {
         // Soft blur-to-sharp
         finalOpacity = unit.opacity * eased;
-        finalBlur = (1 - eased) * 6.0 * intensity;
+        finalBlur = (1 - eased) * EM.blur * emPx * intensity;
         break;
       }
 
@@ -194,7 +258,7 @@ export function applyLyricsEffect(
         // Directional slide
         finalOpacity = unit.opacity * eased;
         const dir = cfg.direction || 'up';
-        const dist = 8.0 * intensity * (1 - eased);
+        const dist = EM.slide * emPx * intensity * (1 - eased);
         if (dir === 'up') finalTranslateY = dist;
         else if (dir === 'down') finalTranslateY = -dist;
         else if (dir === 'left') finalTranslateX = dist;
@@ -212,7 +276,7 @@ export function applyLyricsEffect(
       case 'bounce': {
         // Gentle damped bounce
         finalOpacity = unit.opacity * Math.min(1, eased * 1.5);
-        const bounceOffset = Math.sin(eased * Math.PI * 1.5) * (1 - eased) * 4.0 * intensity;
+        const bounceOffset = Math.sin(eased * Math.PI * 1.5) * (1 - eased) * EM.bounce * emPx * intensity;
         finalTranslateY = -bounceOffset;
         break;
       }
@@ -221,7 +285,7 @@ export function applyLyricsEffect(
         // Luminous soft bloom on active unit
         finalOpacity = unit.opacity;
         if (unit.isActive) {
-          finalGlow = 8.0 * intensity;
+          finalGlow = EM.glow * emPx * intensity;
         }
         break;
       }

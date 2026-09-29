@@ -29,3 +29,29 @@ every word you said
 under the streetlights
 fading into red
 `;
+
+export const DEMO_SRT = `1
+00:00:01,006 --> 00:00:03,004
+You need a woman holding you down
+
+2
+00:00:03,102 --> 00:00:05,002
+Whenever, wherever, however, whatever
+
+3
+00:00:05,100 --> 00:00:08,006
+I'll be right by your side
+
+4
+00:00:08,104 --> 00:00:10,996
+See, I just wanna love you, boy, if you don't mind
+
+5
+00:00:11,094 --> 00:00:14,000
+Let's kick in this little game of mine
+
+6
+00:00:14,097 --> 00:00:15,006
+And he said
+`;
+

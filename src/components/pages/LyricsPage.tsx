@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Upload, 
+  Download,
   Music, 
   Search, 
   Clock, 
@@ -17,9 +18,17 @@ import {
   X
 } from 'lucide-react';
 import type { LyricLine, TrackMetadata, TimingSource, QualityValidationResult } from '../../types/lyrics';
-import { parseLrc } from '../../lib/lyrics/lrc-parser';
-import { parseTxtLyrics } from '../../lib/lyrics/txt-parser';
-import { parseJsonLyrics } from '../../lib/lyrics/json-parser';
+import { importLyricsFile, describeImportError } from '../../lib/lyrics/lyric-import';
+import {
+  SUPPORTED_LYRIC_ACCEPT,
+  formatTimelineTime,
+  formatDurationSeconds,
+  resolveSourceFormat,
+  describeSourceFormat,
+} from '../../lib/lyrics/lyric-format';
+import { downloadLyricsFile } from '../../lib/lyrics/lyric-export';
+import { AutoArrangePanel } from '../AutoArrangePanel';
+import type { ArrangeSettings, LyricsViewMode } from '../../lib/lyrics/auto-arrange';
 
 interface LyricsPageProps {
   lines: LyricLine[];
@@ -31,6 +40,19 @@ interface LyricsPageProps {
   selectedLineId: string | null;
   currentTime: number;
   validation: QualityValidationResult;
+  // ─── Auto Arrange ──────────────────────────────────────────────────────────
+  originalLines: LyricLine[];
+  processedLines: LyricLine[];
+  arrangeSettings: ArrangeSettings;
+  viewMode: LyricsViewMode;
+  arrangeLog: string[];
+  isAudioSyncLoading: boolean;
+  audioSyncProgress: number;
+  audioSyncError: string | null;
+  onArrangeSettingsChange: (settings: ArrangeSettings) => void;
+  onApplyAutoArrange: () => void;
+  onResetToOriginal: () => void;
+  onViewModeChange: (mode: LyricsViewMode) => void;
   onSelectLine: (id: string) => void;
   onSeek: (time: number) => void;
   onLyricsLoaded: (lines: LyricLine[], meta?: Partial<TrackMetadata>, source?: TimingSource) => void;
@@ -45,7 +67,7 @@ interface LyricsPageProps {
 
 export const LyricsPage: React.FC<LyricsPageProps> = ({
   lines,
-  track: _track,
+  track,
   timingSource,
   audioFileName,
   audioDuration: _audioDuration,
@@ -53,6 +75,18 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
   selectedLineId,
   currentTime,
   validation,
+  originalLines,
+  processedLines,
+  arrangeSettings,
+  viewMode,
+  arrangeLog,
+  isAudioSyncLoading,
+  audioSyncProgress,
+  audioSyncError,
+  onArrangeSettingsChange,
+  onApplyAutoArrange,
+  onResetToOriginal,
+  onViewModeChange,
   onSelectLine,
   onSeek,
   onLyricsLoaded,
@@ -67,13 +101,10 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
 
-  const formatSeconds = (sec: number | null) => {
-    if (sec === null) return '--:--.--';
-    const m = Math.floor(sec / 60);
-    const s = (sec % 60).toFixed(2);
-    return `${m.toString().padStart(2, '0')}:${s.padStart(5, '0')}`;
-  };
+  const currentFormat = track.sourceFormat || resolveSourceFormat(lines);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -82,26 +113,19 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
     const reader = new FileReader();
     reader.onload = (event) => {
       const content = event.target?.result as string;
-      const lower = file.name.toLowerCase();
 
       try {
-        if (lower.endsWith('.lrc')) {
-          const parsed = parseLrc(content);
-          const isEnhanced = parsed.lines.some((l) => l.words && l.words.length > 0);
-          onLyricsLoaded(
-            parsed.lines,
-            parsed.metadata,
-            isEnhanced ? 'SOURCE_ENHANCED_LRC' : 'SOURCE_LRC'
-          );
-        } else if (lower.endsWith('.json')) {
-          const parsed = parseJsonLyrics(content);
-          onLyricsLoaded(parsed.lines, parsed.track, parsed.project?.timingSource || 'SOURCE_UNKNOWN');
-        } else {
-          const parsed = parseTxtLyrics(content);
-          onLyricsLoaded(parsed.lines, { title: file.name.replace(/\.[^/.]+$/, '') }, 'SOURCE_UNKNOWN');
-        }
-      } catch (err: any) {
-        alert(`Failed to parse lyrics: ${err.message}`);
+        setImportError(null);
+        const result = importLyricsFile(content, file.name);
+        setImportWarnings(result.warnings);
+        onLyricsLoaded(
+          result.lines,
+          { ...result.metadata, sourceFormat: result.sourceFormat },
+          result.timingSource
+        );
+      } catch (err: unknown) {
+        const errorMsg = describeImportError(err, file.name);
+        setImportError(errorMsg);
       }
     };
     reader.readAsText(file);
@@ -144,14 +168,18 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
         <div className="toolbar-left">
           <label className="btn btn-primary btn-sm">
             <Upload size={14} />
-            <span>Upload Lyrics (.lrc, .txt, .json)</span>
+            <span>Upload Lyrics (.lrc, .srt, .txt, .json)</span>
             <input
               type="file"
-              accept=".lrc,.txt,.json"
+              accept={SUPPORTED_LYRIC_ACCEPT}
               onChange={handleFileUpload}
               style={{ display: 'none' }}
             />
           </label>
+
+          <span className="source-format-pill" title={`Detected format: ${currentFormat.toUpperCase()}`}>
+            {describeSourceFormat(currentFormat)}
+          </span>
 
           <label className="btn btn-secondary btn-sm">
             <Music size={14} />
@@ -201,6 +229,27 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
         </div>
 
         <div className="toolbar-right">
+          <div className="export-lyrics-group">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => downloadLyricsFile(lines, 'srt', track)}
+              title="Export current lyrics as SubRip (.srt)"
+            >
+              <Download size={13} />
+              <span>Export .srt</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => downloadLyricsFile(lines, 'lrc', track)}
+              title="Export current lyrics as LRC (.lrc)"
+            >
+              <Download size={13} />
+              <span>Export .lrc</span>
+            </button>
+          </div>
+
           <div className="global-offset-group">
             <span className="offset-label">Global Shift:</span>
             <button
@@ -238,6 +287,61 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Auto Arrange — segmentation & timing only, never animation */}
+      <AutoArrangePanel
+        originalLines={originalLines}
+        processedLines={processedLines}
+        arrangeSettings={arrangeSettings}
+        viewMode={viewMode}
+        hasAudio={!!audioFileName}
+        isAudioSyncLoading={isAudioSyncLoading}
+        audioSyncProgress={audioSyncProgress}
+        audioSyncError={audioSyncError}
+        log={arrangeLog}
+        onSettingsChange={onArrangeSettingsChange}
+        onApply={onApplyAutoArrange}
+        onReset={onResetToOriginal}
+        onViewModeChange={onViewModeChange}
+      />
+
+      {/* Import Error Banner if file parsing failed */}
+      {importError && (
+        <div className="validation-alert-banner import-error-banner">
+          <AlertOctagon size={16} className="alert-icon-error" />
+          <div className="alert-content">
+            <span className="alert-title">Import Error</span>
+            <span className="alert-desc" style={{ whiteSpace: 'pre-line' }}>{importError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setImportError(null)}
+            className="search-clear-btn"
+            title="Dismiss error"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Non-fatal import warnings (e.g. tolerated nonstandard separators, stripped tags) */}
+      {importWarnings.length > 0 && (
+        <div className="import-warnings-banner">
+          <AlertTriangle size={14} className="text-amber-400" />
+          <div className="warning-text">
+            <strong>Import Notice:</strong> {importWarnings[0]}
+            {importWarnings.length > 1 && ` (+${importWarnings.length - 1} more)`}
+          </div>
+          <button
+            type="button"
+            onClick={() => setImportWarnings([])}
+            className="search-clear-btn"
+            title="Dismiss notice"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
 
       {/* Validation Alert Banner if issues exist */}
       {blockingIssues.length > 0 && (
@@ -302,9 +406,9 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
                         title="Click to seek playhead here"
                       >
                         <Clock size={11} />
-                        <span>{formatSeconds(line.startTime)}</span>
+                        <span>{formatTimelineTime(line.startTime, currentFormat)}</span>
                         <span className="time-arrow">→</span>
-                        <span>{formatSeconds(line.endTime)}</span>
+                        <span>{formatTimelineTime(line.endTime, currentFormat)}</span>
                       </button>
                     ) : (
                       <span className="untimed-pill">Untimed</span>
@@ -376,9 +480,12 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
 
                   <div className="col-duration">
                     <span className="duration-tag">
-                      {line.startTime !== null && line.endTime !== null
-                        ? `${(line.endTime - line.startTime).toFixed(2)}s`
-                        : '--'}
+                      {formatDurationSeconds(
+                        line.startTime !== null && line.endTime !== null
+                          ? line.endTime - line.startTime
+                          : null,
+                        currentFormat
+                      )}
                     </span>
                   </div>
 

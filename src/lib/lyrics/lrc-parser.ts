@@ -124,7 +124,7 @@ export function parseLrc(content: string, defaultMaxHoldSec: number = 4.5): Pars
     // Format A: word<00:12.30> word<00:13.10>
     // Format B: [00:12.30] word [00:12.80] word
     const words: Word[] = [];
-    const wordPattern = /([^\s<\[]+)(?:<(\d{1,2}:\d{2}(?:\.\d{1,3})?)>|\[(\d{1,2}:\d{2}(?:\.\d{1,3})?)\])?/g;
+    const wordPattern = /([^\s<[]+)(?:<(\d{1,2}:\d{2}(?:\.\d{1,3})?)>|\[(\d{1,2}:\d{2}(?:\.\d{1,3})?)\])?/g;
     const wordMatches = Array.from(entry.rawText.matchAll(wordPattern));
 
     let hasWordTimestamps = false;
@@ -136,9 +136,9 @@ export function parseLrc(content: string, defaultMaxHoldSec: number = 4.5): Pars
       let wordText = wm[1].trim();
       if (!wordText) continue;
 
-      if (/^[\(\[\{]/.test(wordText)) inParentheses = true;
+      if (/^[([{]/.test(wordText)) inParentheses = true;
       let type: LyricType = inParentheses ? 'SUPPORTING' : 'PRIMARY';
-      if (/[\)\]\}][.,;?!]*$/.test(wordText)) inParentheses = false;
+      if (/[)\]}][.,;?!]*$/.test(wordText)) inParentheses = false;
 
       const innerTs = wm[2] || wm[3];
       if (innerTs) {
@@ -205,6 +205,9 @@ export function parseLrc(content: string, defaultMaxHoldSec: number = 4.5): Pars
           resultLines.push({
             id: `line-${i + 1}-${Math.round(grpStart * 100)}-${resultLines.length}`,
             text: finalText,
+            originalText: finalText,
+            originalIndex: i + 1,
+            sourceFormat: 'lrc',
             startTime: grpStart,
             endTime: grpEnd,
             words: hasWordTimestamps ? currentGroupWords : undefined,
@@ -229,7 +232,7 @@ export function parseLrc(content: string, defaultMaxHoldSec: number = 4.5): Pars
       let finalCleanText = entry.rawText.replace(/<[^>]+>|\[[^\]]+\]/g, '').trim();
       if (finalCleanText.length > 0) {
         let type: LyricType = 'PRIMARY';
-        if (/^[\(\[\{].*[\)\]\}][.,;?!]*$/.test(finalCleanText)) {
+        if (/^[([{].*[)\]}][.,;?!]*$/.test(finalCleanText)) {
           type = 'SUPPORTING';
         }
 
@@ -246,6 +249,9 @@ export function parseLrc(content: string, defaultMaxHoldSec: number = 4.5): Pars
         resultLines.push({
           id: `line-${i + 1}-${Math.round(startTime * 100)}`,
           text: finalCleanText,
+          originalText: finalCleanText,
+          originalIndex: i + 1,
+          sourceFormat: 'lrc',
           startTime,
           endTime,
           words: undefined,

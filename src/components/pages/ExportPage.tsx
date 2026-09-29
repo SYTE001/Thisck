@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { 
   Download, 
   Film, 
@@ -16,7 +16,9 @@ import {
 import type { ExportSettings, StyleConfig, MotionLayersConfig } from '../../types/project';
 import type { LyricLine, VisualLyricBlock, QualityValidationResult } from '../../types/lyrics';
 import { exportVideo, type ExportProgress, type RenderJobState } from '../../lib/render/video-exporter';
+import { isExportCanceled } from '../../lib/errors/export-errors';
 import { formatSecondsToTimecode } from '../../lib/lyrics/lrc-parser';
+import { downloadLyricsFile } from '../../lib/lyrics/lyric-export';
 import type { LyricsType, LyricsEffect } from '../../lib/render/lyricsAnimation/types';
 import type { RainOverlayConfig } from '../../lib/layers/rain-overlay';
 import type { WatermarkConfig, WatermarkPosition, WatermarkAnimationPreset, WatermarkTextStyle } from '../../lib/layers/watermark';
@@ -65,6 +67,11 @@ export const ExportPage: React.FC<ExportPageProps> = ({
   const [completedVideoUrl, setCompletedVideoUrl] = useState<string | null>(null);
   const [completedFilename, setCompletedFilename] = useState<string>('');
   const [activeMotionTab, setActiveMotionTab] = useState<'text' | 'overlay' | 'watermark' | 'transitions'>('text');
+
+  // PRD P0.3: cancellation must be backed by a mutable ref that the export loop
+  // reads on every frame. A plain boolean captured in a closure never changes
+  // once the export has started, so the old cancelFlag could not stop a render.
+  const cancelRef = useRef(false);
 
   const hasAudio = !!audioBuffer && audioBuffer.duration > 0;
 
@@ -120,7 +127,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
     setCompletedVideoUrl(null);
     setJobState(null);
 
-    let cancelFlag = false;
+    cancelRef.current = false;
 
     try {
       const blob = await exportVideo({
@@ -134,7 +141,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
         motionLayers,
         onProgress: (p) => setProgress(p),
         onJobStateChange: (s) => setJobState(s),
-        shouldCancel: () => cancelFlag || isCancelled,
+        shouldCancel: () => cancelRef.current,
       });
 
       const filename = `${(trackTitle || 'lyrics-video').toLowerCase().replace(/\s+/g, '-')}-motion.${exportSettings.format || 'mp4'}`;
@@ -150,23 +157,25 @@ export const ExportPage: React.FC<ExportPageProps> = ({
       link.click();
       document.body.removeChild(link);
     } catch (err: any) {
-      if (err.message !== 'Export cancelled by user.') {
-        setExportError(err.message || 'Export failed.');
+      if (isExportCanceled(err)) {
+        setIsCancelled(true);
+      } else {
+        setExportError(err?.message || 'Export failed.');
       }
     } finally {
       setIsExporting(false);
       setProgress(null);
       // Keep jobState for reference
     }
-
-    // Assign cancel flag via ref-like pattern (closure capture)
-    void cancelFlag;
   }, [
     isExportReady, lines, style, exportSettings, visualBlocks,
-    audioBuffer, trackTitle, artistName, motionLayers, isCancelled,
+    audioBuffer, trackTitle, artistName, motionLayers,
   ]);
 
   const handleCancel = () => {
+    // Flip the ref synchronously so the in-flight render loop sees it on its
+    // next frame check, and mirror it into state for the UI.
+    cancelRef.current = true;
     setIsCancelled(true);
   };
 
@@ -895,6 +904,14 @@ export const ExportPage: React.FC<ExportPageProps> = ({
               </div>
             )}
 
+            {/* Cancellation notice — the render was stopped safely. */}
+            {isCancelled && !isExporting && !exportError && !completedVideoUrl && (
+              <div className="export-error-callout">
+                <XCircle size={16} />
+                <span>Export cancelled. Your project is unchanged — start again when ready.</span>
+              </div>
+            )}
+
             {/* Render Progress or Action */}
             <div className="export-action-container">
               {isExporting ? (
@@ -903,8 +920,10 @@ export const ExportPage: React.FC<ExportPageProps> = ({
                   <div className="progress-phase-label">
                     {jobState?.status === 'PREPARING' && 'Preparing project...'}
                     {jobState?.status === 'RENDERING' && 'Rendering frames...'}
+                    {jobState?.status === 'AUDIO' && 'Encoding audio...'}
                     {jobState?.status === 'ENCODING' && 'Encoding video...'}
                     {jobState?.status === 'MUXING' && 'Muxing audio...'}
+                    {jobState?.status === 'FINALIZING' && 'Finalizing MP4...'}
                     {!jobState && 'Initializing...'}
                   </div>
 
@@ -977,6 +996,32 @@ export const ExportPage: React.FC<ExportPageProps> = ({
                   <span>Start MP4 Export</span>
                 </button>
               )}
+
+              <div className="lyric-export-actions" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <span className="export-subtitle-label" style={{ fontSize: '11px', color: 'var(--text-tertiary, #94a3b8)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+                  Export Subtitles & Lyrics
+                </span>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => downloadLyricsFile(lines, 'srt', { title: trackTitle, artist: artistName })}
+                    title="Export as SubRip (.srt)"
+                  >
+                    <Download size={13} />
+                    <span>Export .srt</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => downloadLyricsFile(lines, 'lrc', { title: trackTitle, artist: artistName })}
+                    title="Export as Synced LRC (.lrc)"
+                  >
+                    <Download size={13} />
+                    <span>Export .lrc</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </section>
         </div>

@@ -32,6 +32,12 @@ export const Header: React.FC<HeaderProps> = ({
           icon: <CheckCircle2 size={13} className="text-emerald-400" />,
           className: 'badge-exact',
         };
+      case 'SOURCE_SRT':
+        return {
+          label: 'Exact SRT Timestamps',
+          icon: <CheckCircle2 size={13} className="text-emerald-400" />,
+          className: 'badge-exact',
+        };
       case 'SOURCE_LRC':
         return {
           label: 'Exact LRC Timestamps',

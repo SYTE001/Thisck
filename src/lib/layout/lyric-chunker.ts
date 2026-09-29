@@ -212,7 +212,7 @@ function partitionByWordTiming(
     
     if (!isLastWord) {
       // Natural break points
-      const hasPunctuation = /[,\.!?;:—-]$/.test(words[i].text);
+      const hasPunctuation = /[,.!?;:—-]$/.test(words[i].text);
       const nextIsConjunction = nextWord && BREAK_BEFORE_WORDS.has(nextWord.text.toLowerCase().replace(/[^a-z]/g, ''));
       
       // Break if there is a significant pause (>0.8s) between words

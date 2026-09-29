@@ -779,6 +779,51 @@ body {
   gap: var(--space-sm);
 }
 
+.source-format-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  font-family: var(--font-mono);
+  background-color: rgba(228, 219, 196, 0.08);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  color: var(--sand);
+}
+
+.export-lyrics-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.import-warnings-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  background-color: rgba(234, 179, 8, 0.1);
+  border: 1px solid rgba(234, 179, 8, 0.25);
+  border-radius: var(--radius-sm);
+  color: var(--sand);
+  font-size: 12px;
+  margin-bottom: var(--space-sm);
+}
+
+.import-warnings-banner .warning-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.import-error-banner {
+  margin-bottom: var(--space-sm);
+}
+
 .search-box {
   position: relative;
   display: flex;
@@ -1944,6 +1989,13 @@ body {
   color: var(--sand);
 }
 
+.slider-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(230, 194, 128, 0.55);
+}
+
 .range-slider {
   width: 100%;
   accent-color: var(--sand);
@@ -3095,3 +3147,269 @@ body {
   gap: 10px;
 }
 
+
+/* ── Auto Arrange Panel ───────────────────────────────────────────────────
+   Compact, non-destructive controls for the segmentation stage. Reuses the
+   existing select-field / range-slider / toggle-pill / segment-btn classes. */
+.auto-arrange-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--bg-surface, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 4px;
+}
+
+.aa-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.aa-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--olive-light, #9db08a);
+}
+
+.aa-stat {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--sand-dim, #b8ad91);
+}
+
+.aa-modes {
+  display: flex;
+  gap: 2px;
+}
+
+.aa-settings {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.aa-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.aa-field-wide {
+  grid-column: 1 / -1;
+}
+
+.aa-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.aa-toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.aa-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.aa-status {
+  margin: 0;
+  font-size: 11px;
+  color: var(--sand-dim, #b8ad91);
+}
+
+.aa-status-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #d98b7a;
+}
+
+.aa-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--sand-dim, #b8ad91);
+  opacity: 0.85;
+}
+
+.aa-log {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 11px;
+  color: #c9a227;
+}
+
+@media (max-width: 720px) {
+  .aa-settings {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ─── Toasts (PRD 19) ─────────────────────────────────────────────────────── */
+.toast-host {
+  position: fixed;
+  right: var(--space-lg);
+  bottom: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  z-index: 1000;
+  max-width: min(380px, calc(100vw - 2 * var(--space-lg)));
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-cinema);
+  color: var(--text-primary);
+  animation: toast-in 160ms ease-out;
+}
+.toast-info { border-left-color: var(--text-secondary); }
+.toast-success { border-left-color: var(--status-emerald); }
+.toast-warning { border-left-color: var(--status-amber); }
+.toast-error { border-left-color: var(--status-rose); }
+.toast-icon { margin-top: 2px; flex: 0 0 auto; }
+.toast-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.toast-title { font-size: 13px; font-weight: 600; }
+.toast-detail { font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
+.toast-close {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius-xs);
+}
+.toast-close:hover { color: var(--text-primary); }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── App dialog (PRD 18/19/22) ───────────────────────────────────────────── */
+.app-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  padding: var(--space-lg);
+}
+.app-dialog {
+  width: min(440px, 100%);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-cinema);
+  overflow: hidden;
+}
+.app-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.app-dialog-title { font-family: var(--font-display); font-size: 18px; margin: 0; color: var(--text-primary); }
+.app-dialog-close {
+  background: transparent; border: none; color: var(--text-muted);
+  cursor: pointer; padding: 4px; border-radius: var(--radius-xs);
+}
+.app-dialog-close:hover { color: var(--text-primary); }
+.app-dialog-body {
+  padding: var(--space-lg);
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.app-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--border-subtle);
+}
+.btn-danger {
+  background: var(--status-rose);
+  color: #fff;
+  border: 1px solid var(--status-rose);
+}
+
+/* ─── Save status (PRD 18) ────────────────────────────────────────────────── */
+.nav-save-status {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  color: var(--text-muted);
+}
+.nav-save-status.status-unsaved { color: var(--status-amber); }
+.nav-save-status.status-saving { color: var(--text-secondary); }
+.nav-save-status.status-saved { color: var(--status-emerald); }
+
+/* ─── Numeric timing editor (PRD 6.1) ─────────────────────────────────────── */
+.timing-editor {
+  display: flex;
+  gap: var(--space-md);
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.timing-field { display: flex; flex-direction: column; gap: 4px; }
+.timing-field label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.timing-field input {
+  width: 108px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 6px 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+}
+.timing-field input:focus-visible {
+  outline: 2px solid var(--status-emerald);
+  outline-offset: 1px;
+}
+.timing-field.readonly input { color: var(--text-secondary); opacity: 0.8; }
+
+/* Visible focus for keyboard users (PRD 22) */
+.app-dialog button:focus-visible,
+.toast-close:focus-visible,
+.nav-tab-item:focus-visible {
+  outline: 2px solid var(--status-emerald);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}

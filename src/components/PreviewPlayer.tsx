@@ -11,6 +11,7 @@ import {
 import type { LyricLine, VisualLyricBlock } from '../types/lyrics';
 import type { StyleConfig, MotionLayersConfig } from '../types/project';
 import { renderEditorialFrame } from '../lib/render/canvas-renderer';
+import { createRenderContext } from '../lib/render/render-context';
 import { formatSecondsToTimecode } from '../lib/lyrics/lrc-parser';
 import { getActiveVisualBlockAt } from '../lib/layout/lyric-chunker';
 import { LayerCompositor } from '../lib/render/layer-compositor';
@@ -34,6 +35,11 @@ interface PreviewPlayerProps {
   onRestart: () => void;
   onPrevLine: () => void;
   onNextLine: () => void;
+  /** PRD Section 5: playback speed/mute are owned by App's audio clock. */
+  playbackSpeed?: number;
+  isMuted?: boolean;
+  onSpeedChange?: (speed: number) => void;
+  onToggleMute?: () => void;
 }
 
 export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
@@ -52,33 +58,16 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
   onRestart,
   onPrevLine,
   onNextLine,
+  playbackSpeed = 1.0,
+  isMuted = false,
+  onSpeedChange,
+  onToggleMute,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
-  const [isMuted, setIsMuted] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
 
-  // Sync internal audio element with play/pause and time updates
-  useEffect(() => {
-    if (!audioRef.current) return;
-    audioRef.current.playbackRate = playbackSpeed;
-    if (isPlaying) {
-      if (Math.abs(audioRef.current.currentTime - currentTime) > 0.25) {
-        audioRef.current.currentTime = currentTime;
-      }
-      audioRef.current.play().catch(() => {});
-    } else {
-      audioRef.current.pause();
-    }
-  }, [isPlaying, playbackSpeed]);
-
-  useEffect(() => {
-    if (!audioRef.current) return;
-    if (Math.abs(audioRef.current.currentTime - currentTime) > 0.3) {
-      audioRef.current.currentTime = currentTime;
-    }
-  }, [currentTime]);
+  // Audio playback is owned by App's single authoritative audio element
+  // (PRD Section 5). This component only renders the canvas and controls.
 
   const [compositor] = useState(() => new LayerCompositor({ width: 1080, height: 1920, projectSeed: 42 }));
   const [compositorReady, setCompositorReady] = useState(false);
@@ -116,22 +105,21 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    renderEditorialFrame(ctx, {
-      width: 1080,
-      height: 1920,
-      currentTime,
-      lines,
-      style,
-      visualBlocks,
-      trackTitle,
-      artistName,
-      lyricsType: motionLayers?.lyricsType,
-      lyricsEffect: motionLayers?.lyricsEffect,
-      lyricsEffectConfig: motionLayers?.lyricsEffectConfig,
-      textAnimationPreset: motionLayers?.textAnimation,
-      textAnimationConfig: motionLayers?.textAnimationConfig,
-      isPreview: true,
-    });
+    renderEditorialFrame(
+      ctx,
+      createRenderContext(
+        {
+          lines,
+          style,
+          visualBlocks,
+          trackTitle,
+          artistName,
+          motion: motionLayers,
+        },
+        currentTime,
+        { width: 1080, height: 1920, isPreview: true }
+      )
+    );
 
     if (compositorReady && compositor.getLayers().length > 0) {
       compositor.renderFrame(ctx, currentTime, totalDuration, true);
@@ -150,7 +138,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
   const handleSpeedToggle = () => {
     const speeds = [0.5, 1.0, 1.5];
     const nextIdx = (speeds.indexOf(playbackSpeed) + 1) % speeds.length;
-    setPlaybackSpeed(speeds[nextIdx]);
+    onSpeedChange?.(speeds[nextIdx]);
   };
 
   const { activeBlock } = getActiveVisualBlockAt(visualBlocks || [], currentTime);
@@ -160,15 +148,6 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
 
   return (
     <main className="preview-container">
-      {audioBlobUrl && (
-        <audio
-          ref={audioRef}
-          src={audioBlobUrl}
-          muted={isMuted}
-          onEnded={onPlayPause}
-        />
-      )}
-
       {/* Vertical 9:16 Canvas Box */}
       <div className="canvas-wrapper" style={{ position: 'relative' }}>
         <div className="aspect-ratio-box">
@@ -274,7 +253,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
               <button
                 type="button"
                 className="ctrl-btn"
-                onClick={() => setIsMuted(!isMuted)}
+                onClick={() => onToggleMute?.()}
                 title={isMuted ? 'Unmute' : 'Mute'}
               >
                 {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}

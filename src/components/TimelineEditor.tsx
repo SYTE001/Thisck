@@ -2,14 +2,91 @@ import React, { useRef, useState } from 'react';
 import {
   Scissors,
   Layers,
-  FastForward,
-  Rewind,
   ZoomIn,
   ZoomOut,
   AlertCircle,
+  AlertTriangle,
 } from 'lucide-react';
 import type { LyricLine } from '../types/lyrics';
 import { formatSecondsToTimecode } from '../lib/lyrics/lrc-parser';
+import {
+  formatTimingField,
+  parseTimingField,
+  nudgeDeltaMsForKey,
+} from '../lib/timeline/timing-edit';
+import { snapTime, DEFAULT_SNAP_MODE, type SnapMode } from '../lib/timeline/snapping';
+import { detectOverlaps } from '../lib/timeline/timeline-model';
+import { WaveformCanvas } from './WaveformCanvas';
+
+/**
+ * Numeric Start / End / Length editor for the selected line (PRD 6.1).
+ * Fields accept MM:SS.mmm or plain seconds. Arrow keys nudge by ±10ms,
+ * Shift ±100ms, Ctrl/Cmd ±1000ms. Committed values are snapped.
+ */
+const NumericTimingEditor: React.FC<{
+  line: LyricLine;
+  snapMode: SnapMode;
+  onUpdateLineTiming: (lineId: string, start: number, end: number) => void;
+}> = ({ line, snapMode, onUpdateLineTiming }) => {
+  const start = line.startTime as number;
+  const end = line.endTime as number;
+  const length = Math.max(0, end - start);
+
+  const [draft, setDraft] = useState<{ field: 'start' | 'end' | 'length'; value: string } | null>(
+    null
+  );
+
+  const snap = (t: number) => snapTime(Math.max(0, t), snapMode, { fps: 30 });
+
+  const commit = (field: 'start' | 'end' | 'length', raw: string) => {
+    const parsed = parseTimingField(raw);
+    setDraft(null);
+    if (parsed === null) return;
+    if (field === 'start') onUpdateLineTiming(line.id, snap(parsed), end);
+    else if (field === 'end') onUpdateLineTiming(line.id, start, snap(parsed));
+    else onUpdateLineTiming(line.id, start, snap(start + parsed));
+  };
+
+  const nudge = (field: 'start' | 'end' | 'length', e: React.KeyboardEvent) => {
+    const deltaMs = nudgeDeltaMsForKey(e.key, e);
+    if (deltaMs === null) {
+      if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+      return;
+    }
+    e.preventDefault();
+    const d = deltaMs / 1000;
+    if (field === 'start') onUpdateLineTiming(line.id, snap(start + d), end);
+    else if (field === 'end') onUpdateLineTiming(line.id, start, snap(end + d));
+    else onUpdateLineTiming(line.id, start, snap(start + Math.max(0, length + d)));
+  };
+
+  const fieldValue = (field: 'start' | 'end' | 'length', actual: number) =>
+    draft?.field === field ? draft.value : formatTimingField(actual);
+
+  const renderField = (field: 'start' | 'end' | 'length', label: string, actual: number) => (
+    <div className="timing-field">
+      <label htmlFor={`timing-${field}`}>{label}</label>
+      <input
+        id={`timing-${field}`}
+        type="text"
+        inputMode="decimal"
+        value={fieldValue(field, actual)}
+        onChange={(e) => setDraft({ field, value: e.target.value })}
+        onBlur={(e) => commit(field, e.target.value)}
+        onKeyDown={(e) => nudge(field, e)}
+        aria-label={`${label} (MM:SS.mmm). Arrow keys nudge 10ms, Shift 100ms, Ctrl 1000ms.`}
+      />
+    </div>
+  );
+
+  return (
+    <div className="timing-editor" role="group" aria-label="Selected line timing">
+      {renderField('start', 'Start', start)}
+      {renderField('end', 'End', end)}
+      {renderField('length', 'Length', length)}
+    </div>
+  );
+};
 
 interface TimelineEditorProps {
   lines: LyricLine[];
@@ -34,14 +111,23 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
   onSelectLine,
   onSeek,
   onUpdateLineTiming,
-  onNudgeLine,
   onSplitLine,
   onMergeWithNext,
 }) => {
   const [zoom, setZoom] = useState(1.0);
+  const [snapMode, setSnapMode] = useState<SnapMode>(DEFAULT_SNAP_MODE);
   const trackRef = useRef<HTMLDivElement | null>(null);
 
   const selectedLine = lines.find((l) => l.id === selectedLineId);
+
+  // Collision awareness (PRD 6.3): warn when the selected line overlaps a
+  // neighbour by more than 50ms. We never silently alter neighbouring lines.
+  const overlapIds = new Set<string>();
+  for (const o of detectOverlaps(lines, 0.05)) {
+    overlapIds.add(o.firstId);
+    overlapIds.add(o.secondId);
+  }
+  const selectedOverlaps = selectedLine ? overlapIds.has(selectedLine.id) : false;
 
   // Pixel width per second based on zoom (e.g. 50px/sec at 1.0x)
   const pxPerSec = 52 * zoom;
@@ -52,7 +138,7 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
     const rect = trackRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left + trackRef.current.scrollLeft;
     const clickedTime = Math.max(0, Math.min(totalDuration, clickX / pxPerSec));
-    onSeek(clickedTime);
+    onSeek(snapTime(clickedTime, snapMode, { fps: 30 }));
   };
 
   const playheadPositionPx = currentTime * pxPerSec;
@@ -68,51 +154,21 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
               Selected: "{selectedLine.text.slice(0, 16)}..."
             </span>
             {selectedLine.startTime !== null && selectedLine.endTime !== null && (
-              <span className="time-edit-group" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  style={{ width: '56px', padding: '2px 4px', fontSize: '11px', background: '#252220', border: '1px solid #444', color: '#fff', borderRadius: '3px' }}
-                  value={selectedLine.startTime}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    if (!isNaN(val)) onUpdateLineTiming(selectedLine.id, val, selectedLine.endTime!);
-                  }}
-                  title="Line Start (seconds)"
-                />
-                <span>-</span>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0.1"
-                  style={{ width: '56px', padding: '2px 4px', fontSize: '11px', background: '#252220', border: '1px solid #444', color: '#fff', borderRadius: '3px' }}
-                  value={selectedLine.endTime}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    if (!isNaN(val)) onUpdateLineTiming(selectedLine.id, selectedLine.startTime!, val);
-                  }}
-                  title="Line End (seconds)"
-                />
-                <span style={{ fontSize: '10px', color: '#888' }}>s</span>
+              <NumericTimingEditor
+                line={selectedLine}
+                snapMode={snapMode}
+                onUpdateLineTiming={onUpdateLineTiming}
+              />
+            )}
+            {selectedOverlaps && (
+              <span
+                className="timeline-overlap-warning"
+                title="This line overlaps a neighbour by more than 50ms"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--status-amber)', fontSize: '11px' }}
+              >
+                <AlertTriangle size={12} /> Overlaps neighbour
               </span>
             )}
-            <button
-              type="button"
-              className="btn btn-xs btn-outline"
-              onClick={() => onNudgeLine(selectedLine.id, -100)}
-              title="Nudge line -100ms"
-            >
-              <Rewind size={11} /> -100ms
-            </button>
-            <button
-              type="button"
-              className="btn btn-xs btn-outline"
-              onClick={() => onNudgeLine(selectedLine.id, 100)}
-              title="Nudge line +100ms"
-            >
-              <FastForward size={11} /> +100ms
-            </button>
             <button
               type="button"
               className="btn btn-xs btn-outline"
@@ -133,6 +189,21 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
         )}
 
         <div className="toolbar-group zoom-group">
+          <label className="snap-select-label" style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            Snap
+            <select
+              value={snapMode}
+              onChange={(e) => setSnapMode(e.target.value as SnapMode)}
+              aria-label="Snap resolution"
+              style={{ fontSize: '11px', padding: '2px 4px' }}
+            >
+              <option value="off">Off</option>
+              <option value="frame">Frame</option>
+              <option value="50ms">50 ms</option>
+              <option value="100ms">100 ms</option>
+              <option value="beat">Beat</option>
+            </select>
+          </label>
           <button
             type="button"
             className="icon-btn"
@@ -169,23 +240,10 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
             ))}
           </div>
 
-          {/* Audio Waveform Track (if available) */}
+          {/* Audio Waveform Track (Canvas — PRD 26) */}
           {audioPeaks && audioPeaks.length > 0 && (
             <div className="waveform-track">
-              {audioPeaks.map((peak, idx) => {
-                const leftPercent = (idx / audioPeaks.length) * 100;
-                const barHeight = Math.max(2, Math.round(peak * 32));
-                return (
-                  <div
-                    key={idx}
-                    className="waveform-bar"
-                    style={{
-                      left: `${leftPercent}%`,
-                      height: `${barHeight}px`,
-                    }}
-                  />
-                );
-              })}
+              <WaveformCanvas peaks={audioPeaks} width={totalTrackWidth} height={40} />
             </div>
           )}
 

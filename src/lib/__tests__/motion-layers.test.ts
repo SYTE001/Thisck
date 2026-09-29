@@ -11,6 +11,8 @@ import { RainOverlayLayer, DEFAULT_RAIN_CONFIG } from '../layers/rain-overlay';
 import { WatermarkLayer, DEFAULT_WATERMARK_CONFIG } from '../layers/watermark';
 import { VideoTransitionsLayer } from '../layers/video-transitions';
 import { calculateTextAnimationState } from '../render/text-animation';
+import { applyLyricsEffect, getWaveOffsetY, WAVE_FREQUENCY_HZ } from '../render/lyricsAnimation/lyricsEffects';
+import { resolveLyricsTypeState } from '../render/lyricsAnimation/lyricsTypes';
 import { createInitialJobState, computeEstimatedRemaining } from '../render/render-job';
 import type { VisualLyricBlock } from '../../types/lyrics';
 
@@ -444,6 +446,118 @@ describe('WatermarkLayer text & glass modes', () => {
     // Plain output does not contain backdrop rect
     expect(ctxPlain.ops.some((op) => op.includes('roundRect'))).toBe(false);
     expect(ctxPlain.ops).not.toEqual(ctxGlass.ops);
+  });
+});
+
+// ─── Lyrics Effect: em-relative amplitudes (1080x1920, font 88px) ──────────────
+
+describe('Lyrics Effect amplitude is font-size relative (render scale sanity)', () => {
+  const RENDER_FONT_SIZE = 88;
+
+  function makeWaveBlock(): VisualLyricBlock {
+    return makeBlock({
+      text: 'we are falling tonight',
+      lines: ['we are falling tonight'],
+      startTime: 1.0,
+      endTime: 5.0,
+      duration: 4.0,
+      words: [
+        { id: 'w0', text: 'we', startTime: 1.0, endTime: 1.8 },
+        { id: 'w1', text: 'are', startTime: 1.8, endTime: 2.6 },
+        { id: 'w2', text: 'falling', startTime: 2.6, endTime: 3.8 },
+        { id: 'w3', text: 'tonight', startTime: 3.8, endTime: 5.0 },
+      ],
+    });
+  }
+
+  /** Peak absolute displacement of an effect over a full sampling window. */
+  function peakDisplacement(effect: 'wave' | 'kinetic' | 'slide' | 'bounce' | 'blur', fontSize: number): number {
+    const block = makeWaveBlock();
+    let peak = 0;
+    for (let t = 1.0; t < 5.0; t += 1 / 240) {
+      const units = resolveLyricsTypeState('single-line', block, t).units;
+      const res = applyLyricsEffect(effect, units, block, t, { intensity: 1.0 }, fontSize);
+      for (const u of res.units) {
+        peak = Math.max(peak, Math.abs(u.translateX), Math.abs(u.translateY), Math.abs(u.blur));
+      }
+    }
+    return peak;
+  }
+
+  it('wave peak amplitude exceeds 8px at a 88px font (was previously ~3px and invisible)', () => {
+    const peak = peakDisplacement('wave', RENDER_FONT_SIZE);
+    expect(peak).toBeGreaterThan(8);
+    // 0.16em of 88px = 14.08px is the theoretical maximum
+    expect(peak).toBeLessThanOrEqual(0.16 * RENDER_FONT_SIZE + 0.001);
+  });
+
+  it('kinetic, slide, bounce and blur are all clearly visible at 88px', () => {
+    for (const effect of ['kinetic', 'slide', 'bounce', 'blur'] as const) {
+      expect(peakDisplacement(effect, RENDER_FONT_SIZE), `${effect} must be visible`).toBeGreaterThan(8);
+    }
+  });
+
+  it('amplitudes scale with the font size (same visual ratio at any canvas size)', () => {
+    for (const effect of ['wave', 'kinetic', 'slide', 'bounce', 'blur'] as const) {
+      const small = peakDisplacement(effect, 44);
+      const large = peakDisplacement(effect, 88);
+      expect(large).toBeCloseTo(small * 2, 4);
+    }
+  });
+
+  it('every non-none effect differs from "none" at 100% intensity on an 88px font', () => {
+    const block = makeWaveBlock();
+    const t = 1.05;
+    const units = resolveLyricsTypeState('single-line', block, t).units;
+    const baseline = applyLyricsEffect('none', units, block, t, {}, RENDER_FONT_SIZE);
+
+    const effects = ['fade', 'fade-in-out', 'wave', 'kinetic', 'scale', 'pop', 'blur', 'slide', 'bounce', 'glow', 'highlight', 'pulse'] as const;
+
+    for (const effect of effects) {
+      const res = applyLyricsEffect(effect, units, block, t, { intensity: 1.0 }, RENDER_FONT_SIZE);
+      const differs = res.units.some((u, i) => {
+        const b = baseline.units[i];
+        return (
+          Math.abs(u.translateX - b.translateX) > 0.01 ||
+          Math.abs(u.translateY - b.translateY) > 0.01 ||
+          Math.abs(u.scale - b.scale) > 0.001 ||
+          Math.abs(u.blur - b.blur) > 0.01 ||
+          Math.abs(u.glow - b.glow) > 0.01 ||
+          Math.abs(u.opacity - b.opacity) > 0.001
+        );
+      });
+      expect(differs, `effect "${effect}" must render differently from "none"`).toBe(true);
+    }
+  });
+
+  it('"none" remains 100% static regardless of font size or intensity', () => {
+    const block = makeWaveBlock();
+    const units = resolveLyricsTypeState('word-by-word', block, 2.0).units;
+    for (const fontSize of [40, 88, 400]) {
+      const res = applyLyricsEffect('none', units, block, 2.0, { intensity: 2.0 }, fontSize);
+      for (const u of res.units) {
+        expect(u.translateX).toBe(0);
+        expect(u.translateY).toBe(0);
+        expect(u.scale).toBe(1.0);
+        expect(u.blur).toBe(0);
+        expect(u.glow).toBe(0);
+      }
+    }
+  });
+
+  it('wave propagates left to right and runs at a calm 1.2-1.6 Hz', () => {
+    expect(WAVE_FREQUENCY_HZ).toBeGreaterThanOrEqual(1.2);
+    expect(WAVE_FREQUENCY_HZ).toBeLessThanOrEqual(1.6);
+
+    const t = 2.0;
+    const left = getWaveOffsetY(0, t, 1.0, RENDER_FONT_SIZE, 1.0);
+    const right = getWaveOffsetY(3, t, 1.0, RENDER_FONT_SIZE, 1.0);
+    // A travelling wave: neighbouring units are out of phase, not identical
+    expect(left).not.toBeCloseTo(right, 3);
+
+    // One full period brings the wave back to the same offset
+    const period = 1 / WAVE_FREQUENCY_HZ;
+    expect(getWaveOffsetY(0, t + period, 1.0, RENDER_FONT_SIZE, 1.0)).toBeCloseTo(left, 6);
   });
 });
 

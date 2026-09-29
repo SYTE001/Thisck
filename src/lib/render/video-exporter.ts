@@ -4,10 +4,18 @@ import type { ExportSettings, StyleConfig, MotionLayersConfig } from '../../type
 import type { TextAnimationPreset } from './text-animation';
 import type { LyricsType, LyricsEffect, LyricsEffectConfig } from './lyricsAnimation/types';
 import { renderEditorialFrame } from './canvas-renderer';
+import { createRenderContext } from './render-context';
 import { chunkAllLyricLines } from '../layout/lyric-chunker';
+import { getTotalDuration } from '../timeline/timeline-engine';
+import { createExportPlan, frameTimestampUs } from './export-plan';
+import { resolveVideoCodecOrThrow, isAacEncodingSupported } from './codec-support';
+import type { LegacyTextAnimationConfig } from './animation-resolver';
+import { ExportCanceledError } from '../errors/export-errors';
+import { EXPORT_DEFAULTS } from '../config/editorial-constants';
 import { LayerCompositor } from './layer-compositor';
 import { RainOverlayLayer } from '../layers/rain-overlay';
 import { WatermarkLayer } from '../layers/watermark';
+import { VideoTransitionsLayer } from '../layers/video-transitions';
 import {
   type RenderJobState,
   type RenderJobStatus,
@@ -108,39 +116,45 @@ export async function exportVideo(options: VideoExportOptions): Promise<Blob> {
     shouldCancel,
   } = options;
 
-  const width = exportSettings.width || 1080;
-  const height = exportSettings.height || 1920;
-  // PRD Section 6: 30 FPS is the default export preset.
-  const fps = exportSettings.fps || 30;
-  const visualBlocks = providedBlocks || chunkAllLyricLines(lines, 42);
+  // Preview and export MUST agree. The caller (App) always passes visualBlocks
+  // computed from the same activeLines + lyricsType. This fallback exists only
+  // for direct callers, and it now forwards lyricsType: omitting it previously
+  // made the export path pick a different layout than the preview.
+  const visualBlocks = providedBlocks || chunkAllLyricLines(lines, 42, motionLayers?.lyricsType);
 
-  // Calculate total export duration
-  let maxEndTime = 5;
-  for (const l of lines) {
-    if (l.endTime !== null && l.endTime > maxEndTime) {
-      maxEndTime = l.endTime;
+  // Whether audio is both requested and actually present.
+  let hasAudio = !!(exportSettings.includeAudio && audioBuffer && audioBuffer.duration > 0);
+
+  // PRD 13.4: probe AAC availability BEFORE any rendering. If audio was
+  // requested but cannot be encoded, fall back to a silent (video-only) export
+  // up front rather than rendering every frame and only then discovering audio
+  // cannot be muxed.
+  if (hasAudio && audioBuffer) {
+    const aacOk = await isAacEncodingSupported({
+      sampleRate: audioBuffer.sampleRate,
+      numberOfChannels: Math.min(2, audioBuffer.numberOfChannels),
+    });
+    if (!aacOk) {
+      hasAudio = false;
     }
   }
 
-  // Include audio duration if audio enabled and present
-  const hasAudio = exportSettings.includeAudio && audioBuffer && audioBuffer.duration > 0;
-  
-  // Resolve Output Range based on PRD Section 1 & 7
-  let startTimeSec = 0;
-  let durationSec = hasAudio ? Math.max(maxEndTime, audioBuffer!.duration) : maxEndTime + 1.0;
-  const mode = exportSettings.outputRange?.mode || 'AUTO';
-  
-  if (mode === 'AUDIO' && hasAudio) {
-    durationSec = audioBuffer!.duration;
-  } else if (mode === 'LYRICS') {
-    durationSec = maxEndTime;
-  } else if (mode === 'MANUAL' || mode === 'CUSTOM') {
-    startTimeSec = exportSettings.outputRange?.startTime || 0;
-    const endTimeSec = exportSettings.outputRange?.endTime || durationSec;
-    durationSec = Math.max(0, endTimeSec - startTimeSec);
-  }
+  // ONE export plan (PRD 13.1), generated here and threaded through the
+  // pipeline. It resolves the output range via the shared resolver so preview
+  // and export agree on duration/start/end and total frame count.
+  const plan = createExportPlan({
+    exportSettings,
+    lyricDuration: getTotalDuration(lines, null),
+    mediaDuration: audioBuffer && audioBuffer.duration > 0 ? audioBuffer.duration : null,
+    hasAudio,
+  });
 
-  const totalFrames = Math.ceil(durationSec * fps);
+  const width = plan.width;
+  const height = plan.height;
+  const fps = plan.fps;
+  const startTimeSec = plan.startTimeSec;
+  const durationSec = plan.durationSec;
+  const totalFrames = plan.totalFrames;
 
   // Build job state
   const jobId = `export-${Date.now()}`;
@@ -175,7 +189,6 @@ export async function exportVideo(options: VideoExportOptions): Promise<Blob> {
     compositor.addLayer(new WatermarkLayer(motionLayers.watermark));
   }
   if (motionLayers?.videoTransitions?.enabled) {
-    const { VideoTransitionsLayer } = await import('../layers/video-transitions');
     compositor.addLayer(new VideoTransitionsLayer(motionLayers.videoTransitions));
   }
 
@@ -273,7 +286,7 @@ interface InternalExportParams {
   trackTitle?: string;
   artistName?: string;
   textAnimationPreset: TextAnimationPreset;
-  textAnimationConfig?: any;
+  textAnimationConfig?: LegacyTextAnimationConfig;
   lyricsType?: LyricsType;
   lyricsEffect?: LyricsEffect;
   lyricsEffectConfig?: LyricsEffectConfig;
@@ -294,23 +307,30 @@ function renderFrame(
 ): void {
   const { width, height, lines, style, visualBlocks, trackTitle, artistName, textAnimationPreset, textAnimationConfig, lyricsType, lyricsEffect, lyricsEffectConfig, compositor, durationSec } = params;
 
-  // 1. Editorial lyric frame (background, text, decoration)
-  renderEditorialFrame(ctx, {
-    width,
-    height,
-    currentTime,
-    lines,
-    style,
-    visualBlocks,
-    trackTitle,
-    artistName,
-    textAnimationPreset,
-    textAnimationConfig,
-    lyricsType,
-    lyricsEffect,
-    lyricsEffectConfig,
-    isPreview: false,
-  });
+  // 1. Editorial lyric frame (background, text, decoration). Built through the
+  // shared render context so export resolves the SAME visual state the preview
+  // does at this time (PRD Section 16). isPreview:false = full export quality.
+  renderEditorialFrame(
+    ctx,
+    createRenderContext(
+      {
+        lines,
+        style,
+        visualBlocks,
+        trackTitle,
+        artistName,
+        motion: {
+          lyricsType,
+          lyricsEffect,
+          lyricsEffectConfig,
+          textAnimation: textAnimationPreset,
+          textAnimationConfig,
+        },
+      },
+      currentTime,
+      { width, height, isPreview: false }
+    )
+  );
 
   // 2. Overlay / watermark layers on top
   if (compositor.getLayers().length > 0) {
@@ -367,7 +387,7 @@ async function exportWithWebCodecs(params: InternalExportParams): Promise<Blob> 
 
   const target = new ArrayBufferTarget();
 
-  const muxerOptions: any = {
+  const muxerOptions: ConstructorParameters<typeof Muxer>[0] = {
     target,
     video: {
       codec: 'avc',
@@ -396,18 +416,24 @@ async function exportWithWebCodecs(params: InternalExportParams): Promise<Blob> 
     },
   });
 
-  const bitrate = ((exportSettings?.bitrateKbps) || 8000) * 1000;
+  const bitrate = ((exportSettings?.bitrateKbps) || EXPORT_DEFAULTS.bitrateKbps) * 1000;
+
+  // PRD 13.3: probe H.264 profiles and use the first supported one. Throws an
+  // actionable ExportCodecError before rendering if none are supported, instead
+  // of silently claiming an MP4 succeeded.
+  const videoCodec = await resolveVideoCodecOrThrow({ width, height, bitrate, framerate: fps });
   videoEncoder.configure({
-    codec: 'avc1.640028', // H.264 High Profile Level 4.0
+    codec: videoCodec,
     width,
     height,
     bitrate,
     framerate: fps,
   });
 
-  // Audio Encoder if audio is present
+  // Audio Encoder if audio is present. AAC availability was already confirmed
+  // up front (PRD 13.4), so reaching here with hasAudio means it is encodable.
   let audioEncoder: AudioEncoder | null = null;
-  if (hasAudio && audioBuffer && 'AudioEncoder' in window) {
+  if (hasAudio && audioBuffer && typeof AudioEncoder !== 'undefined') {
     audioEncoder = new AudioEncoder({
       output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
       error: (e) => {
@@ -445,7 +471,7 @@ async function exportWithWebCodecs(params: InternalExportParams): Promise<Blob> 
       videoEncoder.close();
       if (audioEncoder) audioEncoder.close();
       compositor.dispose();
-      throw new Error('Export cancelled by user.');
+      throw new ExportCanceledError();
     }
     if (encoderError) throw encoderError;
 
@@ -453,7 +479,9 @@ async function exportWithWebCodecs(params: InternalExportParams): Promise<Blob> 
 
     renderFrame(ctx, { width, height, lines, style, visualBlocks, trackTitle, artistName, textAnimationPreset, textAnimationConfig, compositor, durationSec }, currentTime);
 
-    const timestampUs = f * frameDurationUs;
+    // PRD 13.2: derive the timestamp from the integer frame index so it never
+    // drifts over a long export.
+    const timestampUs = frameTimestampUs(f, fps);
     const videoFrame = new VideoFrame(canvas, {
       timestamp: timestampUs,
       duration: frameDurationUs,
@@ -463,9 +491,19 @@ async function exportWithWebCodecs(params: InternalExportParams): Promise<Blob> 
     videoEncoder.encode(videoFrame, { keyFrame: isKeyFrame });
     videoFrame.close();
 
-    // Check queue pressure to avoid exhausting browser memory
-    if (videoEncoder.encodeQueueSize > 10) {
-      await new Promise((r) => setTimeout(r, 10));
+    // Backpressure (PRD 13.5): when the encoder queue climbs past the
+    // high-watermark, wait for it to drain instead of a fixed sleep so memory
+    // stays bounded regardless of machine speed.
+    if (videoEncoder.encodeQueueSize > EXPORT_DEFAULTS.encoderQueueHighWatermark) {
+      while (videoEncoder.encodeQueueSize > EXPORT_DEFAULTS.encoderQueueHighWatermark / 2) {
+        await new Promise((r) => setTimeout(r, 4));
+        if (shouldCancel && shouldCancel()) {
+          videoEncoder.close();
+          if (audioEncoder) audioEncoder.close();
+          compositor.dispose();
+          throw new ExportCanceledError();
+        }
+      }
     }
 
     if (f % 10 === 0) {
@@ -492,7 +530,7 @@ async function exportWithWebCodecs(params: InternalExportParams): Promise<Blob> 
   if (hasAudio && audioBuffer && audioEncoder) {
     updateJobState(
       jobState,
-      { status: 'MUXING', percentage: 90, statusText: 'Muxing synchronized audio track...' },
+      { status: 'AUDIO', percentage: 90, statusText: 'Encoding synchronized audio track...' },
       onJobStateChange,
       onProgress
     );
@@ -506,6 +544,15 @@ async function exportWithWebCodecs(params: InternalExportParams): Promise<Blob> 
     const chunkSize = 4096;
 
     for (let offset = 0; offset < totalSamplesToEncode; offset += chunkSize) {
+      // PRD 14: cancellation must work during the AUDIO_ENCODING phase too.
+      if (shouldCancel && shouldCancel()) {
+        videoEncoder.close();
+        audioEncoder.close();
+        compositor.dispose();
+        throw new ExportCanceledError();
+      }
+      if (encoderError) throw encoderError;
+
       const currentChunkLen = Math.min(chunkSize, totalSamplesToEncode - offset);
       const audioData = new Float32Array(currentChunkLen * channels);
 
@@ -533,6 +580,12 @@ async function exportWithWebCodecs(params: InternalExportParams): Promise<Blob> 
     audioEncoder.close();
   }
 
+  if (shouldCancel && shouldCancel()) {
+    videoEncoder.close();
+    compositor.dispose();
+    throw new ExportCanceledError();
+  }
+
   updateJobState(
     jobState,
     { status: 'ENCODING', percentage: 95, statusText: 'Encoding video...' },
@@ -542,6 +595,13 @@ async function exportWithWebCodecs(params: InternalExportParams): Promise<Blob> 
 
   await videoEncoder.flush();
   videoEncoder.close();
+
+  updateJobState(
+    jobState,
+    { status: 'FINALIZING', percentage: 98, statusText: 'Finalizing MP4...' },
+    onJobStateChange,
+    onProgress
+  );
 
   muxer.finalize();
   compositor.dispose();
@@ -624,7 +684,7 @@ async function exportWithMediaRecorder(params: InternalExportParams): Promise<Bl
         if (shouldCancel && shouldCancel()) {
           recorder.stop();
           compositor.dispose();
-          return reject(new Error('Export cancelled by user.'));
+          return reject(new ExportCanceledError());
         }
 
         const currentTime = startTimeSec + (f / fps);
