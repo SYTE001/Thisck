@@ -58,6 +58,8 @@ interface LyricsPageProps {
   onLyricsLoaded: (lines: LyricLine[], meta?: Partial<TrackMetadata>, source?: TimingSource) => void;
   onAudioFileSelected: (file: File) => void;
   onRunAudioAlignment: () => void;
+  onOpenAiSync: () => void;
+  aiSyncRunning: boolean;
   onNudgeLine: (lineId: string, deltaMs: number) => void;
   onSplitLine: (lineId: string) => void;
   onMergeWithNext: (lineId: string) => void;
@@ -92,6 +94,8 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
   onLyricsLoaded,
   onAudioFileSelected,
   onRunAudioAlignment,
+  onOpenAiSync,
+  aiSyncRunning,
   onNudgeLine,
   onSplitLine,
   onMergeWithNext,
@@ -103,6 +107,14 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
   const [editingText, setEditingText] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
+  // Absolute fine-tune offset in ms; we apply only the delta since last change.
+  const [offsetMs, setOffsetMs] = useState(0);
+
+  const handleOffsetChange = (next: number) => {
+    const delta = next - offsetMs;
+    if (delta !== 0) onApplyGlobalOffset(delta);
+    setOffsetMs(next);
+  };
 
   const currentFormat = track.sourceFormat || resolveSourceFormat(lines);
 
@@ -191,6 +203,19 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
               style={{ display: 'none' }}
             />
           </label>
+
+          {audioFileName && (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm ai-sync-btn"
+              onClick={onOpenAiSync}
+              disabled={aiSyncRunning}
+              title="Generate precise line & word timestamps from the audio using AI"
+            >
+              <Sparkles size={13} className={aiSyncRunning ? 'spin-animation' : ''} />
+              <span>{aiSyncRunning ? 'AI Syncing...' : 'AI Auto Sync'}</span>
+            </button>
+          )}
 
           {audioFileName && timingSource === 'SOURCE_UNKNOWN' && (
             <button
@@ -284,6 +309,34 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
             >
               +500ms
             </button>
+          </div>
+
+          <div className="offset-slider-group" title="Fine-tune audio latency across every line">
+            <span className="offset-label">Fine Offset</span>
+            <input
+              type="range"
+              min={-500}
+              max={500}
+              step={10}
+              value={offsetMs}
+              onChange={(e) => handleOffsetChange(Number(e.target.value))}
+              className="offset-slider"
+              aria-label="Global fine offset in milliseconds"
+            />
+            <span className="offset-value">
+              {offsetMs > 0 ? '+' : ''}
+              {offsetMs}ms
+            </span>
+            {offsetMs !== 0 && (
+              <button
+                type="button"
+                className="offset-reset-btn"
+                onClick={() => handleOffsetChange(0)}
+                title="Reset offset to 0"
+              >
+                <X size={11} />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -416,6 +469,19 @@ export const LyricsPage: React.FC<LyricsPageProps> = ({
                   </div>
 
                   <div className="col-source">
+                    {line.source === 'SOURCE_AUDIO_ALIGNMENT' && (
+                      <span
+                        className="pill-type pill-ai"
+                        title={`AI aligned to audio${
+                          typeof line.confidence === 'number'
+                            ? ` — ${Math.round(line.confidence * 100)}% confidence`
+                            : ''
+                        }`}
+                      >
+                        <Sparkles size={11} />
+                        <span>AI Sync</span>
+                      </span>
+                    )}
                     {hasWordSync ? (
                       <span className="pill-type pill-word">
                         <Sparkles size={11} />

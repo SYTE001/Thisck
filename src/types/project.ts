@@ -100,6 +100,11 @@ export interface AudioTrackState {
   duration: number | null;
   audioBlobUrl: string | null;
   audioBuffer?: AudioBuffer | null;
+  /**
+   * The original encoded upload, retained (runtime-only) so API-mode AI Sync
+   * can send it to a transcription endpoint. Never serialized to project JSON.
+   */
+  audioFile?: File | null;
   peaks?: number[]; // for waveform display
 }
 

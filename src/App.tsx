@@ -25,6 +25,7 @@ import {
   type LyricsViewMode,
 } from './lib/lyrics/auto-arrange';
 import { runAudioSync } from './lib/lyrics/audio-sync';
+import { runForcedAlignment } from './lib/sync/forced-alignment';
 import { DEEP_FOREST, STYLE_PRESETS } from './lib/styles/presets';
 import { validateProjectQuality } from './lib/validation/quality-validator';
 import { chunkAllLyricLines } from './lib/layout/lyric-chunker';
@@ -41,6 +42,7 @@ import { hashProject } from './lib/project/project-snapshot';
 import { toast } from './lib/ui/toast-bus';
 import { ToastHost } from './components/ui/Toasts';
 import { ConfirmDialog, type ConfirmDialogProps } from './components/ui/ConfirmDialog';
+import { AiSyncModal, type AiSyncRunConfig } from './components/AiSyncModal';
 import { DEMO_LRC, DEMO_ENHANCED_LRC, DEMO_SRT, DEMO_TXT } from './lib/data/demo-tracks';
 
 /** Extract a human-readable message from an unknown thrown value. */
@@ -137,6 +139,14 @@ export function App() {
     activeLines[0]?.id || null
   );
   const [isAligning, setIsAligning] = useState(false);
+
+  // ─── AI Auto Sync (Forced Alignment) ───────────────────────────────────────
+  const [aiSyncOpen, setAiSyncOpen] = useState(false);
+  const [aiSyncRunning, setAiSyncRunning] = useState(false);
+  const [aiSyncPercent, setAiSyncPercent] = useState(0);
+  const [aiSyncStage, setAiSyncStage] = useState('');
+  const [aiSyncError, setAiSyncError] = useState<string | null>(null);
+  const aiSyncAbortRef = useRef<AbortController | null>(null);
 
   const [audioState, setAudioState] = useState<AudioTrackState>({
     enabled: false,
@@ -441,6 +451,7 @@ export function App() {
         duration: loaded.duration,
         audioBlobUrl: loaded.blobUrl,
         audioBuffer: loaded.buffer,
+        audioFile: file,
         peaks: loaded.peaks,
       });
       setExportSettings((prev) => ({ ...prev, includeAudio: true }));
@@ -482,6 +493,102 @@ export function App() {
       toast.error('Alignment failed.', errMessage(err));
     } finally {
       setIsAligning(false);
+    }
+  };
+
+  // ─── AI AUTO SYNC (Forced Alignment) ───────────────────────────────────────
+
+  const handleOpenAiSync = () => {
+    if (!audioState.audioBuffer) {
+      toast.warning('No audio loaded.', 'Link an audio file first, then run AI Auto Sync.');
+      return;
+    }
+    if (originalLines.length === 0) {
+      toast.warning('No lyrics loaded.', 'Upload or paste lyrics before running AI Auto Sync.');
+      return;
+    }
+    setAiSyncError(null);
+    setAiSyncPercent(0);
+    setAiSyncStage('');
+    setAiSyncOpen(true);
+  };
+
+  const handleCancelAiSync = () => {
+    aiSyncAbortRef.current?.abort();
+  };
+
+  const handleCloseAiSync = () => {
+    if (aiSyncRunning) return;
+    setAiSyncOpen(false);
+  };
+
+  const handleStartAiSync = async (config: AiSyncRunConfig) => {
+    if (!audioState.audioBuffer) {
+      setAiSyncError('Audio is no longer available. Re-link the audio file.');
+      return;
+    }
+
+    const controller = new AbortController();
+    aiSyncAbortRef.current = controller;
+    setAiSyncRunning(true);
+    setAiSyncError(null);
+    setAiSyncPercent(0);
+    setAiSyncStage('[1/3] Preparing audio (16kHz)...');
+
+    try {
+      const result = await runForcedAlignment({
+        lines: originalLines,
+        audioBuffer: audioState.audioBuffer,
+        audioFile: audioState.audioFile ?? null,
+        fileName: audioState.fileName ?? undefined,
+        engine: config.engine,
+        apiProvider: config.apiProvider,
+        apiKey: config.apiKey,
+        language: config.language || undefined,
+        signal: controller.signal,
+        onProgress: (p) => {
+          setAiSyncPercent(p.percent);
+          setAiSyncStage(p.stage);
+        },
+      });
+
+      // Forced alignment is a SOURCE-level operation: it rewrites the original
+      // cues with real word timings, so any derived processed result is dropped.
+      setOriginalLines(result.lines);
+      setProcessedLines([]);
+      setViewMode('original');
+      setSelectedLineId(result.lines[0]?.id ?? null);
+      setTrack((prev) => ({ ...prev, timingSource: 'SOURCE_AUDIO_ALIGNMENT' }));
+
+      setAiSyncRunning(false);
+      setAiSyncOpen(false);
+
+      const lowCount = result.lowConfidenceLineIds.length;
+      if (lowCount > 0) {
+        toast.warning(
+          'AI Auto Sync complete (with low-confidence lines).',
+          `${result.recognizedWordCount} words recognised. ${lowCount} line(s) had weak vocal matches and were interpolated — review them. Avg confidence ${Math.round(
+            result.averageConfidence * 100
+          )}%.`
+        );
+      } else {
+        toast.success(
+          'AI Auto Sync complete.',
+          `Aligned ${result.lines.length} lines from ${result.recognizedWordCount} recognised words. Use Global Shift to fine-tune audio latency if needed.`
+        );
+      }
+    } catch (err) {
+      setAiSyncRunning(false);
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setAiSyncStage('');
+        setAiSyncPercent(0);
+        toast.info('AI Auto Sync cancelled.', 'No changes were made to your lyrics.');
+        setAiSyncOpen(false);
+        return;
+      }
+      setAiSyncError(errMessage(err, 'AI Auto Sync failed.'));
+    } finally {
+      aiSyncAbortRef.current = null;
     }
   };
 
@@ -810,6 +917,18 @@ export function App() {
       {/* Non-blocking notifications and the app confirm dialog (PRD 18/19). */}
       <ToastHost />
       {dialogState && <ConfirmDialog {...dialogState} />}
+      <AiSyncModal
+        open={aiSyncOpen}
+        running={aiSyncRunning}
+        percent={aiSyncPercent}
+        stage={aiSyncStage}
+        error={aiSyncError}
+        lineCount={originalLines.length}
+        hasAudioFile={!!audioState.audioFile}
+        onStart={handleStartAiSync}
+        onCancel={handleCancelAiSync}
+        onClose={handleCloseAiSync}
+      />
 
       {/* The single authoritative audio element (PRD Section 5). Owned here so
           one clock drives every preview surface; individual pages no longer
@@ -884,6 +1003,8 @@ export function App() {
             onLyricsLoaded={handleLyricsLoaded}
             onAudioFileSelected={handleAudioFileSelected}
             onRunAudioAlignment={handleRunAudioAlignment}
+            onOpenAiSync={handleOpenAiSync}
+            aiSyncRunning={aiSyncRunning}
             onNudgeLine={handleNudgeLine}
             onSplitLine={handleSplitLine}
             onMergeWithNext={handleMergeWithNext}
