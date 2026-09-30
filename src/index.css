@@ -1,30 +1,62 @@
 /* ==========================================================================
    THISCK / LYRICS MOTION GENERATOR — EDITORIAL DESIGN SYSTEM
-   Palette Foundation:
-   - Everest (Deep Green Base): #18442A
-   - Olive (Muted Supporting):  #45644A
-   - Sand (Soft Neutral / Accent): #E4DBC4
-   - Off-White (Warm Cream):    #F3EDE3
+   Palette Foundation (application chrome only — not the video render):
+   - Prominent Blue (primary accent): #357FA8
+   - Deep Blue / Ink (text, active detail, borders): #24566F
+   - Pearl Sugar (primary app background): #F4F1EB
+   - Soft Cream (secondary surfaces): #ECE8E1
+   - White (elevated content): #FFFFFF
    ========================================================================== */
 
 :root {
-  /* Core Editorial Palette */
-  --everest: #18442A;
-  --everest-deep: #11331F;
-  --everest-dark: #0D2617;
-  --olive: #45644A;
-  --olive-light: #5B8262;
-  --sand: #E4DBC4;
-  --sand-dim: rgba(228, 219, 196, 0.65);
-  --sand-subtle: rgba(228, 219, 196, 0.12);
-  --sand-border: rgba(228, 219, 196, 0.16);
-  --off-white: #F3EDE3;
-  --off-white-dim: rgba(243, 237, 227, 0.72);
+  /* ==========================================================================
+     EDITORIAL UI PALETTE — Prominent Blue / Pearl Sugar
+     Application chrome only. Video/project render colors live in the project
+     style config (style.primaryBg, accentColor, ...) and are NOT themed here.
+     ========================================================================== */
 
-  /* Status Colors (controlled contrast) */
-  --status-emerald: #4EAA77;
-  --status-amber: #D8A552;
-  --status-rose: #C85A5A;
+  /* Brand blues */
+  --color-primary-blue: #357FA8;
+  --color-primary-blue-hover: #2E7197;
+  --color-deep-blue: #24566F;
+  --color-blue-surface: #E3EDF2;
+
+  /* Neutral surfaces */
+  --color-pearl-sugar: #F4F1EB;
+  --color-soft-cream: #ECE8E1;
+  --color-white: #FFFFFF;
+
+  /* Text */
+  --color-text: #19313D;
+  --color-text-secondary: #63747B;
+  --color-text-muted: #8A8A84;
+
+  /* Lines */
+  --color-border: rgba(36, 86, 111, 0.14);
+
+  /* Accent tokens for primary-action surfaces */
+  --accent: var(--color-primary-blue);
+  --accent-hover: var(--color-primary-blue-hover);
+  --accent-fg: var(--color-white);
+
+  /* --- Legacy aliases, repointed so existing var() references retheme coherently.
+     The old palette flipped from dark-bg/light-text to light-bg/deep-blue-text. --- */
+  --everest: var(--color-primary-blue);
+  --everest-deep: var(--color-white);   /* text/icon color that sits ON an accent fill */
+  --everest-dark: var(--color-soft-cream);
+  --olive: rgba(36, 86, 111, 0.18);      /* muted neutral (scrollbar) */
+  --olive-light: var(--color-primary-blue);
+  --sand: var(--color-deep-blue);        /* strong text, icons, labels, borders */
+  --sand-dim: var(--color-text-secondary);
+  --sand-subtle: rgba(36, 86, 111, 0.06);
+  --sand-border: rgba(36, 86, 111, 0.16);
+  --off-white: var(--color-text);        /* primary body text */
+  --off-white-dim: rgba(25, 49, 61, 0.72);
+
+  /* Status (muted, semantic) */
+  --status-emerald: #4F7D67;
+  --status-amber: #B0803B;
+  --status-rose: #B84A4A;
 
   /* Typography */
   --font-display: 'Cormorant Garamond', 'Instrument Serif', Georgia, serif;
@@ -42,23 +74,23 @@
   --space-2xl: 48px;
 
   /* Editorial Surfaces */
-  --bg-app: var(--everest-deep);
-  --bg-nav: var(--everest-dark);
-  --bg-surface: #153B25;
-  --bg-surface-elevated: #1C4D31;
-  --bg-surface-hover: #225C3B;
-  --border-subtle: rgba(228, 219, 196, 0.12);
-  --border-strong: rgba(228, 219, 196, 0.24);
+  --bg-app: var(--color-pearl-sugar);
+  --bg-nav: var(--color-soft-cream);
+  --bg-surface: var(--color-soft-cream);
+  --bg-surface-elevated: var(--color-white);
+  --bg-surface-hover: var(--color-blue-surface);
+  --border-subtle: rgba(36, 86, 111, 0.12);
+  --border-strong: rgba(36, 86, 111, 0.20);
 
   /* Text Colors */
-  --text-primary: var(--off-white);
-  --text-secondary: var(--sand);
-  --text-muted: var(--sand-dim);
+  --text-primary: var(--color-text);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted: var(--color-text-muted);
 
-  /* Shadows (subtle, natural offset with soft blur, never giant or halo) */
-  --shadow-subtle: 0 1px 3px rgba(0, 0, 0, 0.24), 0 4px 12px rgba(0, 0, 0, 0.16);
-  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.28);
-  --shadow-cinema: 0 12px 40px rgba(0, 0, 0, 0.45);
+  /* Shadows — very subtle on a light editorial surface, never a glow */
+  --shadow-subtle: 0 1px 2px rgba(36, 86, 111, 0.06), 0 2px 8px rgba(36, 86, 111, 0.05);
+  --shadow-card: 0 4px 16px rgba(36, 86, 111, 0.08);
+  --shadow-cinema: 0 10px 30px rgba(36, 86, 111, 0.12);
 
   --radius-xs: 3px;
   --radius-sm: 5px;
@@ -143,7 +175,7 @@ body {
   padding: 0 var(--space-md);
   z-index: 50;
   flex-shrink: 0;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 2px 10px rgba(36, 86, 111, 0.10);
 }
 
 .nav-left {
@@ -170,7 +202,7 @@ body {
 .brand-symbol {
   color: var(--sand);
   font-size: 15px;
-  filter: drop-shadow(0 0 6px rgba(228, 219, 196, 0.45));
+  filter: drop-shadow(0 0 6px rgba(36, 86, 111, 0.45));
 }
 
 .brand-name {
@@ -188,7 +220,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--sand);
-  background-color: rgba(228, 219, 196, 0.12);
+  background-color: rgba(36, 86, 111, 0.12);
   border: 1px solid var(--border-subtle);
   padding: 2px 5px;
   border-radius: 3px;
@@ -212,7 +244,7 @@ body {
   text-overflow: ellipsis;
   padding: 4px 8px;
   background-color: rgba(21, 59, 37, 0.4);
-  border: 1px solid rgba(228, 219, 196, 0.08);
+  border: 1px solid rgba(36, 86, 111, 0.08);
   border-radius: var(--radius-xs);
 }
 
@@ -241,7 +273,7 @@ body {
   background-color: rgba(17, 51, 31, 0.6);
   padding: 3px;
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(228, 219, 196, 0.08);
+  border: 1px solid rgba(36, 86, 111, 0.08);
 }
 
 .nav-tab-item {
@@ -262,15 +294,15 @@ body {
 
 .nav-tab-item:hover {
   color: var(--off-white);
-  background-color: rgba(228, 219, 196, 0.08);
+  background-color: rgba(36, 86, 111, 0.08);
 }
 
 .nav-tab-item.is-active {
   color: var(--off-white);
   background-color: var(--bg-surface-elevated);
-  border-color: rgba(228, 219, 196, 0.18);
+  border-color: rgba(36, 86, 111, 0.18);
   font-weight: 600;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 1px 4px rgba(36, 86, 111, 0.10);
 }
 
 .nav-tab-item.is-active::after {
@@ -299,12 +331,12 @@ body {
 
 .dot-error {
   background-color: var(--status-rose);
-  box-shadow: 0 0 6px rgba(200, 90, 90, 0.6);
+  box-shadow: none;
 }
 
 .dot-warning {
   background-color: var(--status-amber);
-  box-shadow: 0 0 6px rgba(216, 165, 82, 0.6);
+  box-shadow: none;
 }
 
 /* Nav Right & Badges */
@@ -347,7 +379,7 @@ body {
 
 .pill-audio {
   color: var(--sand);
-  background-color: rgba(228, 219, 196, 0.08);
+  background-color: rgba(36, 86, 111, 0.08);
 }
 
 .nav-actions {
@@ -390,7 +422,7 @@ body {
   font-weight: 600;
   cursor: pointer;
   transition: all 120ms ease;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 1px 4px rgba(36, 86, 111, 0.10);
 }
 
 .nav-btn-save:hover {
@@ -580,7 +612,7 @@ body {
 
 .status-indicator.live {
   background-color: var(--status-emerald);
-  box-shadow: 0 0 8px rgba(78, 170, 119, 0.4);
+  box-shadow: none;
 }
 
 /* Form Controls */
@@ -787,7 +819,7 @@ body {
   font-weight: 600;
   letter-spacing: 0.04em;
   font-family: var(--font-mono);
-  background-color: rgba(228, 219, 196, 0.08);
+  background-color: rgba(36, 86, 111, 0.08);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xs);
   color: var(--sand);
@@ -839,7 +871,7 @@ body {
 
 .search-box:focus-within {
   border-color: var(--sand);
-  box-shadow: 0 0 0 2px rgba(228, 219, 196, 0.14);
+  box-shadow: 0 0 0 2px rgba(36, 86, 111, 0.14);
 }
 
 .search-icon {
@@ -1053,9 +1085,9 @@ body {
 }
 
 .pill-word {
-  background-color: rgba(228, 219, 196, 0.15);
+  background-color: rgba(36, 86, 111, 0.15);
   color: var(--sand);
-  border: 1px solid rgba(228, 219, 196, 0.2);
+  border: 1px solid rgba(36, 86, 111, 0.2);
 }
 
 .pill-line {
@@ -1468,7 +1500,7 @@ body {
 }
 
 .timeline-lyric-block.is-selected {
-  background-color: rgba(228, 219, 196, 0.16);
+  background-color: rgba(36, 86, 111, 0.16);
   border-color: var(--sand);
   box-shadow: 0 0 0 1px var(--sand);
 }
@@ -1497,7 +1529,7 @@ body {
 }
 
 .timeline-lyric-block:hover .trim-handle {
-  background-color: rgba(228, 219, 196, 0.2);
+  background-color: rgba(36, 86, 111, 0.2);
 }
 
 .block-content {
@@ -1537,7 +1569,7 @@ body {
   background-color: var(--off-white);
   z-index: 30;
   pointer-events: none;
-  box-shadow: 0 0 8px rgba(243, 237, 227, 0.6);
+  box-shadow: 0 0 6px rgba(36, 86, 111, 0.28);
 }
 
 .playhead-head {
@@ -1722,8 +1754,8 @@ body {
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-md);
-  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border-subtle);
-  background-color: #0b1a11;
+  box-shadow: 0 16px 44px rgba(36, 86, 111, 0.16), 0 0 0 1px var(--border-subtle);
+  background-color: var(--bg-nav);
   overflow: hidden;
 }
 
@@ -2137,7 +2169,7 @@ body {
   aspect-ratio: 9 / 16;
   object-fit: contain;
   border-radius: var(--radius-sm);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 30px rgba(36, 86, 111, 0.16);
   cursor: pointer;
 }
 
@@ -2145,7 +2177,7 @@ body {
   position: absolute;
   inset: var(--space-md);
   pointer-events: none;
-  border: 1px dashed rgba(228, 219, 196, 0.35);
+  border: 1px dashed rgba(36, 86, 111, 0.35);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -2699,7 +2731,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 14px rgba(36, 86, 111, 0.12);
   transition: all 140ms ease;
   cursor: pointer;
 }
@@ -2708,7 +2740,7 @@ body {
   background-color: var(--off-white);
   border-color: var(--off-white);
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(228, 219, 196, 0.25);
+  box-shadow: 0 6px 20px rgba(36, 86, 111, 0.25);
 }
 
 .render-btn:disabled {
@@ -3113,9 +3145,9 @@ body {
 }
 
 .capcut-badge-effect {
-  background: rgba(120, 150, 180, 0.18);
-  color: #B0C8E0;
-  border: 1px solid rgba(120, 150, 180, 0.35);
+  background: rgba(36, 86, 111, 0.18);
+  color: var(--color-deep-blue);
+  border: 1px solid rgba(36, 86, 111, 0.35);
 }
 
 .capcut-section-title {
@@ -3298,7 +3330,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: #d98b7a;
+  color: var(--status-rose);
 }
 
 .aa-hint {
@@ -3313,7 +3345,7 @@ body {
   margin: 0;
   padding-left: 16px;
   font-size: 11px;
-  color: #c9a227;
+  color: var(--color-text-secondary);
 }
 
 @media (max-width: 720px) {
@@ -3477,14 +3509,14 @@ body {
 
 /* ─── AI Auto Sync (Forced Alignment) ────────────────────────────────────── */
 .pill-ai {
-  background-color: rgba(140, 120, 220, 0.16);
-  color: #c7bdf0;
-  border: 1px solid rgba(140, 120, 220, 0.3);
+  background-color: rgba(36, 86, 111, 0.16);
+  color: var(--color-deep-blue);
+  border: 1px solid rgba(36, 86, 111, 0.3);
   margin-right: 4px;
 }
 .ai-sync-btn {
-  background: linear-gradient(135deg, #6d5bd0, #8a6fe0);
-  border-color: rgba(140, 120, 220, 0.5);
+  background: linear-gradient(135deg, #357FA8, #2E7197);
+  border-color: rgba(36, 86, 111, 0.5);
 }
 .ai-sync-btn:disabled { opacity: 0.6; cursor: default; }
 
@@ -3510,10 +3542,10 @@ body {
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
-.ai-engine-card:hover { border-color: rgba(140, 120, 220, 0.4); }
+.ai-engine-card:hover { border-color: rgba(36, 86, 111, 0.4); }
 .ai-engine-card.is-active {
-  border-color: rgba(140, 120, 220, 0.7);
-  background: rgba(140, 120, 220, 0.1);
+  border-color: rgba(36, 86, 111, 0.7);
+  background: rgba(36, 86, 111, 0.1);
 }
 .ai-engine-title { font-weight: 600; color: var(--text-primary); font-size: 13px; }
 .ai-engine-desc { font-size: 11.5px; color: var(--text-muted); line-height: 1.4; }
@@ -3537,7 +3569,7 @@ body {
 }
 .ai-sync-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #6d5bd0, #8a6fe0);
+  background: linear-gradient(90deg, #357FA8, #2E7197);
   transition: width 0.25s ease;
 }
 .ai-sync-pct {
@@ -3554,7 +3586,7 @@ body {
   gap: 8px;
   margin-left: var(--space-sm);
 }
-.offset-slider { width: 120px; accent-color: #8a6fe0; cursor: pointer; }
+.offset-slider { width: 120px; accent-color: #2E7197; cursor: pointer; }
 .offset-value {
   font-size: 11px;
   color: var(--text-secondary);
@@ -3571,3 +3603,35 @@ body {
   display: inline-flex;
 }
 .offset-reset-btn:hover { color: var(--text-primary); }
+
+/* ==========================================================================
+   ACCENT SURFACES
+   Primary actions use Prominent Blue with white text. Text, labels, icons and
+   borders keep Deep Blue (via --sand); only these action fills are the accent.
+   ========================================================================== */
+.btn-primary,
+.nav-btn-save,
+.render-btn,
+.play-main-btn,
+.ctrl-btn-play,
+.transport-btn.play-btn {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+.nav-btn-save:hover,
+.btn-primary:hover:not(:disabled),
+.transport-btn.play-btn:hover,
+.ctrl-btn-play:hover,
+.play-main-btn:hover,
+.render-btn:hover:not(:disabled) {
+  background-color: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--accent-fg);
+}
+
+/* Active nav marker reads as the primary accent. */
+.nav-tab-item.is-active::after {
+  background-color: var(--accent);
+}

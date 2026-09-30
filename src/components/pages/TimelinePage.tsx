@@ -254,7 +254,7 @@ export const TimelinePage: React.FC<TimelinePageProps> = ({
                   position: 'absolute',
                   top: 0, bottom: 0, left: 0,
                   width: `${resolvedOutputRange.startTime * pxPerSec}px`,
-                  backgroundColor: 'rgba(0,0,0,0.6)',
+                  backgroundColor: 'rgba(25, 49, 61, 0.32)',
                   pointerEvents: 'none',
                   zIndex: 20
                 }} />
@@ -263,7 +263,7 @@ export const TimelinePage: React.FC<TimelinePageProps> = ({
                   top: 0, bottom: 0,
                   left: `${resolvedOutputRange.endTime * pxPerSec}px`,
                   right: 0,
-                  backgroundColor: 'rgba(0,0,0,0.6)',
+                  backgroundColor: 'rgba(25, 49, 61, 0.32)',
                   pointerEvents: 'none',
                   zIndex: 20
                 }} />

@@ -998,7 +998,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
               )}
 
               <div className="lyric-export-actions" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <span className="export-subtitle-label" style={{ fontSize: '11px', color: 'var(--text-tertiary, #94a3b8)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+                <span className="export-subtitle-label" style={{ fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
                   Export Subtitles & Lyrics
                 </span>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>

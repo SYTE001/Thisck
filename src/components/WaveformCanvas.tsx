@@ -23,7 +23,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({
   peaks,
   width,
   height,
-  color = 'rgba(200, 190, 170, 0.55)',
+  color = 'rgba(36, 86, 111, 0.45)',
   className,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);

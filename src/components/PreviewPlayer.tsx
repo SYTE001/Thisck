@@ -265,7 +265,7 @@ export const PreviewPlayer: React.FC<PreviewPlayerProps> = ({
               className={`ctrl-btn text-btn ${showDiagnostics ? 'active' : ''}`}
               onClick={() => setShowDiagnostics(!showDiagnostics)}
               title="Toggle Sync Diagnostics"
-              style={{ color: showDiagnostics ? '#00ff00' : 'inherit' }}
+              style={{ color: showDiagnostics ? 'var(--color-primary-blue)' : 'inherit' }}
             >
               SYNC
             </button>
