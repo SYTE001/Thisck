@@ -144,42 +144,30 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
 
         {/* Right Info Strip */}
         <div className="preview-info-strip">
-          <div className="info-card-block">
+          {/* Secondary focus: what's on screen right now */}
+          <div className="info-card-block info-card-primary">
             <span className="info-label">Active Phrase</span>
             <p className="active-lyric-display">
-              {activeBlock ? `"${activeBlock.text}"` : <span className="text-dim">Between phrases...</span>}
+              {activeBlock ? `"${activeBlock.text}"` : <span className="text-dim">Between phrases</span>}
             </p>
             {activeBlock && (
               <div className="phrase-meta-row">
-                <span className="badge-subtle">Index: {activeIndex + 1} / {visualBlocks.length}</span>
-                <span className="badge-subtle">Layout: {activeBlock.layoutType}</span>
+                <span className="badge-subtle">{activeIndex + 1} / {visualBlocks.length}</span>
+                <span className="badge-subtle">{activeBlock.layoutType}</span>
                 <span className="badge-subtle">{(activeBlock.duration).toFixed(2)}s</span>
               </div>
             )}
+            <p className="phrase-source-note">
+              <CheckCircle2 size={12} className="text-emerald" />
+              Preview matches export · timing from {timingSource}
+            </p>
           </div>
 
-          <div className="info-card-block">
-            <span className="info-label">Synchronization Engine</span>
-            <div className="engine-status-list">
-              <div className="engine-status-item">
-                <CheckCircle2 size={13} className="text-emerald" />
-                <span>Deterministic 60 FPS clock</span>
-              </div>
-              <div className="engine-status-item">
-                <CheckCircle2 size={13} className="text-emerald" />
-                <span>Exact Canvas-to-Export Parity</span>
-              </div>
-              <div className="engine-status-item">
-                <span>Source: {timingSource}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* TRIM / CUT CONTROLS (PRD Section 5) */}
+          {/* Tertiary: trim controls (PRD Section 5) */}
           {exportSettings && onUpdateExportSettings && resolvedOutputRange && (
-            <div className="info-card-block">
-              <span className="info-label">Output Range (Trim/Cut)</span>
-              
+            <div className="info-card-block info-card-secondary">
+              <span className="info-label">Output Range</span>
+
               <div className="trim-mode-grid">
                 <button 
                   className={`btn btn-xs ${resolvedOutputRange.mode === 'AUTO' ? 'btn-primary' : 'btn-secondary'}`}
@@ -244,7 +232,7 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
             </div>
           )}
 
-          <div className="info-card-block cta-block">
+          <div className="cta-block">
             <button
               type="button"
               className="btn btn-primary btn-block"
@@ -255,10 +243,10 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({
             </button>
             <button
               type="button"
-              className="btn btn-secondary btn-block"
+              className="cta-back-link"
               onClick={() => onNavigateTab('design')}
             >
-              <span>Back to Design Controls</span>
+              Back to Design Controls
             </button>
           </div>
         </div>
