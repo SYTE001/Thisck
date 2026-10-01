@@ -25,7 +25,7 @@ import {
   type LyricsViewMode,
 } from './lib/lyrics/auto-arrange';
 import { runAudioSync } from './lib/lyrics/audio-sync';
-import { runForcedAlignment } from './lib/sync/forced-alignment';
+import { runForcedAlignment, type SyncDraft } from './lib/sync/forced-alignment';
 import { DEEP_FOREST, STYLE_PRESETS } from './lib/styles/presets';
 import { validateProjectQuality } from './lib/validation/quality-validator';
 import { chunkAllLyricLines } from './lib/layout/lyric-chunker';
@@ -146,6 +146,9 @@ export function App() {
   const [aiSyncPercent, setAiSyncPercent] = useState(0);
   const [aiSyncStage, setAiSyncStage] = useState('');
   const [aiSyncError, setAiSyncError] = useState<string | null>(null);
+  // Sync DRAFT (PRD §18): the run never touches the timeline directly; the
+  // result is parked here and the user applies or discards it explicitly.
+  const [aiSyncDraft, setAiSyncDraft] = useState<SyncDraft | null>(null);
   const aiSyncAbortRef = useRef<AbortController | null>(null);
 
   const [audioState, setAudioState] = useState<AudioTrackState>({
@@ -519,6 +522,52 @@ export function App() {
 
   const handleCloseAiSync = () => {
     if (aiSyncRunning) return;
+    // Closing with a pending draft discards it — the timeline was never touched.
+    setAiSyncDraft(null);
+    setAiSyncOpen(false);
+  };
+
+  const handleDiscardAiSync = () => {
+    setAiSyncDraft(null);
+    setAiSyncOpen(false);
+    toast.info('Sync draft discarded.', 'Your lyrics and timeline are unchanged.');
+  };
+
+  const handleApplyAiSync = () => {
+    const draft = aiSyncDraft;
+    if (!draft) return;
+    if (!draft.validation.valid) {
+      toast.error(
+        'Sync result is invalid.',
+        draft.validation.errors[0]?.message ??
+          'Validation failed — review the errors before applying.'
+      );
+      return;
+    }
+
+    // Forced alignment is a SOURCE-level operation: it rewrites the original
+    // cues with real word timings, so any derived processed result is dropped.
+    setOriginalLines(draft.lines);
+    setProcessedLines([]);
+    setViewMode('original');
+    setSelectedLineId(draft.lines[0]?.id ?? null);
+    setTrack((prev) => ({ ...prev, timingSource: 'SOURCE_AUDIO_ALIGNMENT' }));
+
+    const lowCount = draft.stats.needsReviewLineCount;
+    if (lowCount > 0) {
+      toast.warning(
+        'Sync applied (with low-confidence lines).',
+        `${lowCount} line(s) had weak vocal matches and were interpolated — review them on the timeline. Avg confidence ${Math.round(
+          draft.overallConfidence * 100
+        )}%.`
+      );
+    } else {
+      toast.success(
+        'Sync applied.',
+        `Aligned ${draft.lines.length} lines from ${draft.stats.recognizedWordCount} recognised words. Use Global Shift to fine-tune audio latency if needed.`
+      );
+    }
+    setAiSyncDraft(null);
     setAiSyncOpen(false);
   };
 
@@ -532,11 +581,12 @@ export function App() {
     aiSyncAbortRef.current = controller;
     setAiSyncRunning(true);
     setAiSyncError(null);
+    setAiSyncDraft(null);
     setAiSyncPercent(0);
-    setAiSyncStage('[1/3] Preparing audio (16kHz)...');
+    setAiSyncStage('Preparing audio (16kHz)...');
 
     try {
-      const result = await runForcedAlignment({
+      const draft = await runForcedAlignment({
         lines: originalLines,
         audioBuffer: audioState.audioBuffer,
         audioFile: audioState.audioFile ?? null,
@@ -548,35 +598,14 @@ export function App() {
         signal: controller.signal,
         onProgress: (p) => {
           setAiSyncPercent(p.percent);
-          setAiSyncStage(p.stage);
+          setAiSyncStage(p.message);
         },
       });
 
-      // Forced alignment is a SOURCE-level operation: it rewrites the original
-      // cues with real word timings, so any derived processed result is dropped.
-      setOriginalLines(result.lines);
-      setProcessedLines([]);
-      setViewMode('original');
-      setSelectedLineId(result.lines[0]?.id ?? null);
-      setTrack((prev) => ({ ...prev, timingSource: 'SOURCE_AUDIO_ALIGNMENT' }));
-
+      // PRD §18: never overwrite the timeline directly — park the result as a
+      // draft and let the user review and apply it.
       setAiSyncRunning(false);
-      setAiSyncOpen(false);
-
-      const lowCount = result.lowConfidenceLineIds.length;
-      if (lowCount > 0) {
-        toast.warning(
-          'AI Auto Sync complete (with low-confidence lines).',
-          `${result.recognizedWordCount} words recognised. ${lowCount} line(s) had weak vocal matches and were interpolated — review them. Avg confidence ${Math.round(
-            result.averageConfidence * 100
-          )}%.`
-        );
-      } else {
-        toast.success(
-          'AI Auto Sync complete.',
-          `Aligned ${result.lines.length} lines from ${result.recognizedWordCount} recognised words. Use Global Shift to fine-tune audio latency if needed.`
-        );
-      }
+      setAiSyncDraft(draft);
     } catch (err) {
       setAiSyncRunning(false);
       if (err instanceof DOMException && err.name === 'AbortError') {
@@ -923,10 +952,13 @@ export function App() {
         percent={aiSyncPercent}
         stage={aiSyncStage}
         error={aiSyncError}
+        draft={aiSyncDraft}
         lineCount={originalLines.length}
         hasAudioFile={!!audioState.audioFile}
         onStart={handleStartAiSync}
         onCancel={handleCancelAiSync}
+        onApply={handleApplyAiSync}
+        onDiscard={handleDiscardAiSync}
         onClose={handleCloseAiSync}
       />
 

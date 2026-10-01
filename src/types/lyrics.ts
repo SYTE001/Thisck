@@ -42,6 +42,12 @@ export interface Word {
   endTime: number; // in seconds
   confidence?: number;
   type?: LyricType;
+  /**
+   * Where this word's timing came from (PRD Module J). 'matched' = real ASR
+   * evidence, 'interpolated' = estimated between anchors, 'estimated' = no
+   * anchors at all. Only 'matched' words carry true acoustic timing.
+   */
+  timingSource?: 'matched' | 'interpolated' | 'estimated';
 }
 
 /**

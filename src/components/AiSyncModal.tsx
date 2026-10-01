@@ -1,13 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X, Sparkles, Cpu, Cloud, Loader2, AlertTriangle } from 'lucide-react';
+import { X, Sparkles, Cpu, Cloud, Loader2, AlertTriangle, CheckCircle2, ClipboardCheck } from 'lucide-react';
 import type { AlignerEngine, ApiProvider } from '../lib/sync/ai-aligner';
+import type { SyncDraft } from '../lib/sync/forced-alignment';
 
 /**
- * AI AUTO SYNC MODAL (PRD Module 4)
+ * AI AUTO SYNC MODAL (PRD Modules 4, 18, 23)
  *
- * Drives the forced-alignment run: engine choice (on-device worker vs
- * bring-your-own-key API), a three-stage progress bar, and a Cancel that
- * terminates the worker / aborts the request.
+ * Three stages:
+ *   1. Config — engine choice (on-device worker vs bring-your-own-key API).
+ *   2. Progress — named pipeline stages with a Cancel that terminates the
+ *      worker / aborts the request. The timeline is never touched mid-run.
+ *   3. Review (PRD §18) — the SYNC DRAFT: overall confidence, high-confidence
+ *      vs review-required line counts, validation errors and warnings. The
+ *      user explicitly Applies (commits to the timeline) or Discards.
  */
 
 export interface AiSyncRunConfig {
@@ -23,10 +28,14 @@ interface AiSyncModalProps {
   percent: number; // 0..1
   stage: string;
   error: string | null;
+  /** Present when a run finished — switches the modal into review mode. */
+  draft: SyncDraft | null;
   lineCount: number;
   hasAudioFile: boolean;
   onStart: (config: AiSyncRunConfig) => void;
   onCancel: () => void;
+  onApply: () => void;
+  onDiscard: () => void;
   onClose: () => void;
 }
 
@@ -39,10 +48,13 @@ export const AiSyncModal: React.FC<AiSyncModalProps> = ({
   percent,
   stage,
   error,
+  draft,
   lineCount,
   hasAudioFile,
   onStart,
   onCancel,
+  onApply,
+  onDiscard,
   onClose,
 }) => {
   const [engine, setEngine] = useState<AlignerEngine>('local');
@@ -72,6 +84,7 @@ export const AiSyncModal: React.FC<AiSyncModalProps> = ({
     onStart({ engine, apiProvider, apiKey: apiKey.trim(), language: language.trim() });
   };
 
+  const reviewing = !running && draft !== null;
   const startDisabled =
     running || lineCount === 0 || (engine === 'api' && (!apiKey.trim() || !hasAudioFile));
   const pct = Math.round(Math.min(1, Math.max(0, percent)) * 100);
@@ -101,12 +114,79 @@ export const AiSyncModal: React.FC<AiSyncModalProps> = ({
         </div>
 
         <div className="app-dialog-body">
-          {!running && !error && (
+          {/* ── Stage 3: Sync draft review (PRD §18/§23) ── */}
+          {reviewing && (
+            <div className="ai-sync-review">
+              <div className="ai-sync-review-head">
+                <CheckCircle2 size={18} className="ai-sync-review-ok" />
+                <div>
+                  <strong>Sync result ready</strong>
+                  <p className="ai-sync-review-sub">
+                    {draft.method === 'distributed'
+                      ? 'No vocal evidence was found — timing was distributed evenly.'
+                      : draft.method === 'word_alignment+drift'
+                        ? 'Word-level alignment with drift correction applied.'
+                        : 'Word-level alignment complete.'}
+                    {draft.cached ? ' (cached transcription re-used)' : ''}
+                  </p>
+                </div>
+              </div>
+
+              <div className="ai-sync-review-stats">
+                <div className="ai-sync-stat">
+                  <span className="ai-sync-stat-value">{Math.round(draft.overallConfidence * 100)}%</span>
+                  <span className="ai-sync-stat-label">Overall confidence</span>
+                </div>
+                <div className="ai-sync-stat">
+                  <span className="ai-sync-stat-value">{draft.stats.highConfidenceLines}</span>
+                  <span className="ai-sync-stat-label">High confidence lines</span>
+                </div>
+                <div className="ai-sync-stat">
+                  <span className={`ai-sync-stat-value ${draft.stats.needsReviewLineCount > 0 ? 'is-warn' : ''}`}>
+                    {draft.stats.needsReviewLineCount}
+                  </span>
+                  <span className="ai-sync-stat-label">Review required</span>
+                </div>
+              </div>
+
+              <p className="ai-sync-review-meta">
+                {draft.stats.matchedWordCount}/{draft.stats.recognizedWordCount} recognised words
+                matched ({Math.round(draft.stats.matchRate * 100)}%).
+                {draft.driftCorrectionSec > 0 &&
+                  ` Drift correction moved timings by up to ${Math.round(draft.driftCorrectionSec * 1000)} ms.`}
+              </p>
+
+              {!draft.validation.valid && (
+                <div className="ai-sync-review-issues is-errors">
+                  <AlertTriangle size={13} />
+                  <div>
+                    {draft.validation.errors.slice(0, 5).map((e, i) => (
+                      <p key={i}>{e.message}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {draft.validation.warnings.length > 0 && (
+                <div className="ai-sync-review-issues">
+                  <ClipboardCheck size={13} />
+                  <div>
+                    {draft.validation.warnings.slice(0, 4).map((w, i) => (
+                      <p key={i}>{w.message}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Stage 1: config ── */}
+          {!running && !error && !reviewing && (
             <>
               <p className="ai-sync-intro">
                 Generates precise line and word timestamps by matching{' '}
                 <strong>{lineCount}</strong> lyric line{lineCount === 1 ? '' : 's'} against the
-                audio. Your original text is preserved exactly.
+                audio. Your original text is preserved exactly, and the result is reviewed before
+                anything is applied.
               </p>
 
               <div className="ai-sync-engine-choice">
@@ -182,7 +262,8 @@ export const AiSyncModal: React.FC<AiSyncModalProps> = ({
             </>
           )}
 
-          {(running || (!error && percent > 0)) && (
+          {/* ── Stage 2: progress ── */}
+          {(running || (!error && percent > 0 && !reviewing)) && (
             <div className="ai-sync-progress">
               <div className="ai-sync-stage">
                 <Loader2 size={14} className={running ? 'spin-animation' : ''} />
@@ -207,6 +288,26 @@ export const AiSyncModal: React.FC<AiSyncModalProps> = ({
             <button type="button" className="btn btn-danger" onClick={onCancel}>
               Cancel
             </button>
+          ) : reviewing ? (
+            <>
+              <button type="button" className="btn btn-secondary" onClick={onDiscard}>
+                Discard
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={onApply}
+                disabled={!draft.validation.valid}
+                title={
+                  draft.validation.valid
+                    ? 'Apply the synced timings to your timeline'
+                    : 'Validation failed — discard this draft and re-run the sync'
+                }
+              >
+                <CheckCircle2 size={13} />
+                Apply to Timeline
+              </button>
+            </>
           ) : (
             <>
               <button type="button" className="btn btn-secondary" onClick={onClose}>

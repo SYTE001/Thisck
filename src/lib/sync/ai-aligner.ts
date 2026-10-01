@@ -47,9 +47,13 @@ export type AlignerParams = (LocalAlignerParams | ApiAlignerParams) & {
 };
 
 // transformers.js runtime + model used by the local worker.
+// Use the _timestamped variant — it exports cross-attention heads required
+// for word-level timestamps (return_timestamps: 'word'). The standard
+// whisper-base model lacks those heads and causes a cross_attentions error.
+// The worker gracefully falls back to segment-level timestamps if needed.
 export const TRANSFORMERS_RUNTIME_URL =
   'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0';
-export const LOCAL_MODEL_ID = 'onnx-community/whisper-base';
+export const LOCAL_MODEL_ID = 'onnx-community/whisper-base_timestamped';
 
 const API_ENDPOINTS: Record<ApiProvider, { url: string; model: string }> = {
   openai: { url: 'https://api.openai.com/v1/audio/transcriptions', model: 'whisper-1' },
